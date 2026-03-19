@@ -136,6 +136,16 @@ if [ -n "${PDB_CACHE_DIR:-}" ]; then
   CREATE_CMD+=(--env "PDB_CACHE_DIR=$PDB_CACHE_DIR")
 fi
 
+if [ -n "${OPENMM_PLATFORM:-}" ]; then
+  CREATE_CMD+=(--env "OPENMM_PLATFORM=$OPENMM_PLATFORM")
+fi
+if [ -n "${OPENMM_PRECISION:-}" ]; then
+  CREATE_CMD+=(--env "OPENMM_PRECISION=$OPENMM_PRECISION")
+fi
+if [ -n "${OPENMM_DEVICE_INDEX:-}" ]; then
+  CREATE_CMD+=(--env "OPENMM_DEVICE_INDEX=$OPENMM_DEVICE_INDEX")
+fi
+
 if [ -n "$JOB_PLATFORM" ]; then
   CREATE_CMD+=(--platform "$JOB_PLATFORM")
 fi
@@ -144,4 +154,4 @@ if [ -n "$SUBNET_ID" ]; then
   CREATE_CMD+=(--subnet-id "$SUBNET_ID")
 fi
 
-JOB_ID="$("${CREATE_CMD[@]}")"
+"${CREATE_CMD[@]}"

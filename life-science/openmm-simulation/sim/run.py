@@ -15,20 +15,25 @@ from .storage import upload_results_to_s3, check_s3_configuration
 from .visualization import create_visualizations
 
 
-def run_md_simulation(protein_id: str, steps: int) -> None:
+def run_md_simulation(
+    protein_id: str,
+    steps: int,
+    pdb_cache_dir: str | None = None,
+) -> None:
     """
     Run a molecular dynamics simulation for a given protein structure.
 
     Args:
         protein_id: 4-character Protein Data Bank identifier (e.g., "1UBQ").
         steps: Number of integration steps to run (> 0).
+        pdb_cache_dir: Optional path to PDB file cache directory.
     """
     try:
         # 0. Create simulation directory
         sim_dir = create_simulation_directory(protein_id)
         
         # 1. Download PDB if needed
-        pdb_file, pdb_source = download_pdb(protein_id, sim_dir)
+        pdb_file, pdb_source = download_pdb(protein_id, sim_dir, pdb_cache_dir=pdb_cache_dir)
         print(f"PDB source: {pdb_source}")
         
         # 2. Clean structure (remove water, add hydrogens)
@@ -117,6 +122,8 @@ def main() -> None:
     # Preferred named arguments
     parser.add_argument("--protein-id", dest="protein_id_named", help="Protein ID (e.g., 1UBQ)")
     parser.add_argument("--steps", dest="steps_named", type=int, help="Number of MD steps to run")
+    parser.add_argument("--pdb-cache-dir", dest="pdb_cache_dir", default=None,
+                        help="Path to local PDB file cache (default: assets/pdb)")
 
     args = parser.parse_args(sys.argv[1:])
 
@@ -127,7 +134,11 @@ def main() -> None:
         parser.error("protein_id and steps are required. Provide as positionals or with --protein-id and --steps.")
 
     print(f"Starting MD simulation for {protein_id_arg} with {steps_arg} steps")
-    run_md_simulation(protein_id=protein_id_arg, steps=int(steps_arg))
+    run_md_simulation(
+        protein_id=protein_id_arg,
+        steps=int(steps_arg),
+        pdb_cache_dir=args.pdb_cache_dir,
+    )
     print("Simulation complete!")
 
 if __name__ == "__main__":

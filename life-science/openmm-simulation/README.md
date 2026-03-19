@@ -8,6 +8,7 @@ keywords: [molecular-simulation, serverless-jobs, s3, cuda]
 difficulty: intermediate
 ---
 
+<!-- markdownlint-disable MD025 -->
 # OpenMM Serverless Molecular Dynamics with Nebius AI Jobs
 
 Run GPU-accelerated molecular dynamics simulations with a CLI-first workflow.
@@ -56,14 +57,7 @@ For strict S3-backed runs, see [How to Adapt: Configure Nebius Object Storage (S
 
 **Goal:** Validate local setup and run a quick simulation before submitting jobs.
 
-### Setup with helper script
-
-```bash
-bash ./scripts/setup.sh
-source .venv/bin/activate
-```
-
-### Manual setup (uv)
+### Setup local environment
 
 ```bash
 uv venv --python python3.14
@@ -77,29 +71,7 @@ uv pip install .
 python -m sim.run --protein-id 1UBQ --steps 200
 ```
 
-By default, simulation first checks local cache at:
-
-```text
-assets/pdb/<PROTEIN_ID>.pdb
-```
-
-Example committed demo file:
-
-```text
-assets/pdb/1UBQ.pdb
-```
-
-To use a different cache location (for example, an S3 mount inside container), set:
-
-```bash
-export PDB_CACHE_DIR="/path/to/pdb-files"
-```
-
-Or:
-
-```bash
-bash ./scripts/run_local.sh 1UBQ 200
-```
+A bundled PDB file (`assets/pdb/1UBQ.pdb`) is included so the first run works offline.
 
 ---
 
@@ -146,11 +118,7 @@ bash ./scripts/run_serverless.sh 1UBQ 1000
 
 In strict mode, the script fails if required env vars are missing.
 
-The helper script submits a job with `nebius ai job create` and prints:
-
-- job ID
-- `nebius ai job get <job-id>`
-- `nebius ai logs <job-id> --follow`
+The helper script submits a job with `nebius ai job create`.
 
 ### Equivalent manual command (strict mode)
 
@@ -169,7 +137,7 @@ nebius ai job create \
   --env "S3_BUCKET=$S3_BUCKET" \
   --env "S3_PREFIX=$S3_PREFIX" \
   --env "S3_ENDPOINT_URL=$S3_ENDPOINT_URL" \
-  --args "--protein-id 1UBQ --steps 1000" 
+  --args "--protein-id 1UBQ --steps 1000"
 
 ```
 
@@ -223,7 +191,7 @@ aws s3 sync "s3://$S3_BUCKET/$S3_PREFIX/<run-id>/" "./results/<run-id>/"
 
 ## 🧱 Project Structure
 
-- `scripts/` - canonical runnable scripts (`setup.sh`, `run_local.sh`, `run_serverless.sh`, `run_docker.sh`)
+- `scripts/` - canonical runnable scripts (`setup.sh`, `run_serverless.sh`, `run_docker.sh`)
 - `sim/` - simulation and storage Python modules
 - `assets/` - static files and local PDB fallback cache
 
@@ -245,8 +213,9 @@ At the end of this step, you should have:
 - `NB_ACCESS_KEY_AWS_ID`
 - `NB_SECRET_ACCESS_KEY`
 
-3. Export env vars used by this example.
+1. Export env vars used by this example.
 
+<!-- markdownlint-disable MD033 -->
 <details>
 <summary>Copy/paste example (NB_* -> AWS_*)</summary>
 
@@ -260,8 +229,9 @@ export S3_PREFIX="openmm"
 ```
 
 </details>
+<!-- markdownlint-enable MD033 -->
 
-4. Run AWS configuration and test bucket access.
+1. Run AWS configuration and test bucket access.
 
 ```bash
 aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
@@ -270,6 +240,17 @@ aws configure set region "$AWS_DEFAULT_REGION"
 aws configure set endpoint_url "$S3_ENDPOINT_URL"
 aws s3 ls "s3://$S3_BUCKET"
 ```
+
+### Custom PDB cache location
+
+By default, `sim.run` looks for PDB files in `assets/pdb/`.  
+To override (e.g. an S3-mounted volume inside a container), pass the path explicitly:
+
+```bash
+python -m sim.run --protein-id 1UBQ --steps 1000 --pdb-cache-dir /mnt/pdb-files
+```
+
+The `PDB_CACHE_DIR` environment variable is also supported as a fallback.
 
 ### Option: build and push your own image
 
@@ -281,6 +262,7 @@ docker tag openmm-serverless:${IMAGE_TAG} "$CONTAINER_REGISTRY_PATH/openmm-serve
 docker push "$CONTAINER_REGISTRY_PATH/openmm-serverless:${IMAGE_TAG}"
 ```
 
+<!-- markdownlint-disable MD033 -->
 <details>
 <summary>Example: use my Docker Hub repo</summary>
 
@@ -293,6 +275,7 @@ docker push "$CONTAINER_REGISTRY_PATH/openmm-serverless:${IMAGE_TAG}"
 ```
 
 </details>
+<!-- markdownlint-enable MD033 -->
 
 `CONTAINER_REGISTRY_PATH` is registry-agnostic and can point to Docker Hub, Nebius Container Registry or any other OCI-compatible registry.
 

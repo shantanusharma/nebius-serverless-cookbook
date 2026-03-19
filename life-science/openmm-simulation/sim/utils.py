@@ -22,31 +22,42 @@ def create_simulation_directory(protein_id: str) -> Path:
     print(f"Created simulation directory: {sim_dir}")
     return sim_dir
 
-def download_pdb(protein_id: str, sim_dir: Path) -> tuple[str, str]:
-    """Resolve and return PDB file path plus source label."""
+def download_pdb(
+    protein_id: str,
+    sim_dir: Path,
+    pdb_cache_dir: str | None = None,
+) -> tuple[str, str]:
+    """Resolve and return PDB file path plus source label.
+
+    Args:
+        protein_id: PDB identifier (e.g. ``1UBQ``).
+        sim_dir: Directory where the resolved file will be placed.
+        pdb_cache_dir: Explicit cache directory path.  Falls back to
+            ``PDB_CACHE_DIR`` env var, then ``assets/pdb`` relative to
+            the project root.
+    """
     pdb_file = sim_dir / f"{protein_id}.pdb"
 
     if pdb_file.exists():
         return str(pdb_file), "results-cache"
 
-    # Local cache fallback for demo/offline stability.
-    # Default: life-science/openmm-simulation/assets/pdb/<PROTEIN_ID>.pdb
-    # Override with PDB_CACHE_DIR (absolute path, or relative to project root).
+    # Resolve cache directory: CLI arg > env var > default.
     project_root = Path(__file__).resolve().parents[1]
     default_cache_dir = project_root / "assets" / "pdb"
-    cache_dir_env = os.environ.get("PDB_CACHE_DIR", "").strip()
-    if cache_dir_env:
-        pdb_cache_dir = Path(cache_dir_env).expanduser()
-        if not pdb_cache_dir.is_absolute():
-            pdb_cache_dir = (project_root / pdb_cache_dir).resolve()
-    else:
-        pdb_cache_dir = default_cache_dir
 
-    print(f"PDB cache directory: {pdb_cache_dir}")
+    raw_cache = (pdb_cache_dir or os.environ.get("PDB_CACHE_DIR", "")).strip()
+    if raw_cache:
+        resolved_cache = Path(raw_cache).expanduser()
+        if not resolved_cache.is_absolute():
+            resolved_cache = (project_root / resolved_cache).resolve()
+    else:
+        resolved_cache = default_cache_dir
+
+    print(f"PDB cache directory: {resolved_cache}")
     cache_candidates = [
-        pdb_cache_dir / f"{protein_id}.pdb",
-        pdb_cache_dir / f"{protein_id.upper()}.pdb",
-        pdb_cache_dir / f"{protein_id.lower()}.pdb",
+        resolved_cache / f"{protein_id}.pdb",
+        resolved_cache / f"{protein_id.upper()}.pdb",
+        resolved_cache / f"{protein_id.lower()}.pdb",
     ]
     for cached_pdb in cache_candidates:
         if cached_pdb.exists():
@@ -64,7 +75,7 @@ def download_pdb(protein_id: str, sim_dir: Path) -> tuple[str, str]:
         print(f"Error downloading PDB file: {e}")
         print(
             "Tip: add a local fallback file at "
-            f"{pdb_cache_dir / f'{protein_id.upper()}.pdb'}"
+            f"{resolved_cache / f'{protein_id.upper()}.pdb'}"
         )
         raise
 
@@ -125,8 +136,42 @@ def setup_simulation(topology, positions, forcefield):
     # Use Langevin integrator for temperature control
     integrator = mm.LangevinMiddleIntegrator(300*unit.kelvin, 1/unit.picosecond, 0.002*unit.picoseconds)
     
-    # Create simulation
-    simulation = app.Simulation(topology, system, integrator)
+    # Create simulation, preferring GPU platforms explicitly.
+    preferred_platform = os.environ.get("OPENMM_PLATFORM", "").strip()
+    if preferred_platform:
+        platform_candidates = [preferred_platform]
+    else:
+        # Default to GPU-first in serverless/container environments.
+        platform_candidates = ["CUDA", "OpenCL", "CPU"]
+
+    simulation = None
+    for platform_name in platform_candidates:
+        try:
+            platform = mm.Platform.getPlatformByName(platform_name)
+        except Exception as e:
+            print(f"OpenMM platform '{platform_name}' is unavailable: {e}")
+            continue
+
+        properties = {}
+        if platform_name in {"CUDA", "OpenCL"}:
+            properties["Precision"] = os.environ.get("OPENMM_PRECISION", "mixed")
+        if platform_name == "CUDA" and os.environ.get("OPENMM_DEVICE_INDEX"):
+            properties["DeviceIndex"] = os.environ["OPENMM_DEVICE_INDEX"]
+
+        try:
+            simulation = app.Simulation(topology, system, integrator, platform, properties)
+            print(f"Using OpenMM platform: {platform_name}")
+            if properties:
+                print(f"OpenMM platform properties: {properties}")
+            break
+        except Exception as e:
+            print(f"Failed to initialize platform '{platform_name}': {e}")
+
+    if simulation is None:
+        # Final fallback if all explicit platform attempts fail.
+        simulation = app.Simulation(topology, system, integrator)
+        actual_platform = simulation.context.getPlatform().getName()
+        print(f"Fell back to OpenMM platform: {actual_platform}")
     
     return system, integrator, simulation
 
