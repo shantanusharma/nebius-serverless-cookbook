@@ -37,8 +37,8 @@ done
 
 PROTEIN_ID=${POSITIONAL_ARGS[0]:-"1UBQ"}
 STEPS=${POSITIONAL_ARGS[1]:-"100"}
-DEFAULT_IMAGE="mnrozhkov/openmm-serverless:v0.1.3"
-IMAGE_TAG=${IMAGE_TAG:-"v0.1.3"}
+DEFAULT_IMAGE="mnrozhkov/openmm-serverless:v0.1.5"
+IMAGE_TAG=${IMAGE_TAG:-"v0.1.5"}
 CONTAINER_REGISTRY_PATH=${CONTAINER_REGISTRY_PATH:-""}
 
 if [ -z "${IMAGE:-}" ]; then

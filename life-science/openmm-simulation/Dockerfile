@@ -1,11 +1,8 @@
-# Use a base image with CUDA drivers
-FROM nvidia/cuda:13.0.1-base-ubuntu24.04
+# Use CUDA 12 runtime image for broad driver compatibility
+FROM nvidia/cuda:12.4.1-runtime-ubuntu22.04
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
-    python3 \
-    python3-venv \
-    python3-pip \
     wget \
     curl \
     build-essential \
@@ -20,9 +17,23 @@ RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2
 
 # Install uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:$PATH"
 
-## Make directories
+# Install Miniforge (conda-forge)
+RUN curl -fsSL \
+    "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh" \
+    -o /tmp/miniforge.sh && \
+    bash /tmp/miniforge.sh -b -p /opt/conda && \
+    rm -f /tmp/miniforge.sh
+
+ENV PATH="/opt/conda/bin:/root/.local/bin:$PATH"
+
+# Install OpenMM with GPU support from conda-forge (Option A):
+# https://docs.openmm.org/latest/userguide/application/01_getting_started.html
+# cuda-version is pinned to 12 to avoid PTX incompatibilities.
+RUN conda install -y -c conda-forge --strict-channel-priority \
+    "openmm=8.4.*" "cuda-version=12" && \
+    conda clean -afy
+
 RUN mkdir -p /openmm/results
 WORKDIR /openmm
 
@@ -33,15 +44,17 @@ COPY README.md .
 COPY sim/ ./sim/
 COPY assets/ ./assets/
 
-# Create Python virtual environment (3.12 for broad compatibility with scientific packages)
-RUN uv python install 3.12 && uv venv /opt/venv --python 3.12
-ENV PATH="/opt/venv/bin:/root/.local/bin:$PATH"
+# Install package with non-OpenMM dependencies from pyproject.
+# We intentionally keep OpenMM from conda-forge to preserve CUDA platform support.
+RUN uv pip install --python /opt/conda/bin/python --no-deps . && \
+    uv pip install --python /opt/conda/bin/python \
+      boto3 \
+      requests \
+      "matplotlib>=3.7.0" \
+      "seaborn>=0.12.0" \
+      "numpy>=1.24.0" \
+      "pandas>=2.0.0" \
+      "mdtraj>=1.9.8"
 
-# Install Python dependencies with fallback for OpenMM
-RUN uv pip install --python /opt/venv/bin/python . || \
-    (echo "uv install failed, trying with OpenMM fallback..." && \
-     uv pip install --python /opt/venv/bin/python openmm==8.4.0)
-
-     
 # Define the entrypoint using the modular approach
 ENTRYPOINT ["python", "-m", "sim.run"]

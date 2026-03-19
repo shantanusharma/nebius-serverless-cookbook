@@ -11,10 +11,13 @@ Examples focus on practical use cases such as:
 - LLM serving
 - simulations and domain workloads
 
-> Community-maintained examples for experimentation and learning.  
-> For official product documentation, see the [Serverless AI docs](https://docs.nebius.com/serverless).
+> ⚠️ This is a **community-style repository maintained by Nebius engineers**.  
+> It is not official product documentation, but reflects real usage patterns and experiments.  
+> APIs and behavior may evolve.  
+>  
+> For official documentation, see: https://docs.nebius.com/serverless
 
-## Start here
+## Try a workload
 
 Choose the path that best matches what you want to run:
 

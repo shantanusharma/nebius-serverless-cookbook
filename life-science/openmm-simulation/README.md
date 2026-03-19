@@ -53,6 +53,7 @@ This guide shows how to:
 - Compute: `gpu-l40s-a`, preset `1gpu-8vcpu-32gb`
 - Example output: processed PDB, trajectory, simulation log, metadata, plots
 - Best for: validating containerized OpenMM workflows on Nebius AI Jobs
+- CUDA stack in this example is pinned to OpenMM `8.4.*` + `cuda-version=12` for broad driver compatibility
 
 For persistent runs, you will also need Nebius Object Storage (S3-compatible). This is covered in [How to Adapt: Configure Nebius Object Storage (S3)](#configure-nebius-object-storage-s3).
 
@@ -95,7 +96,7 @@ The local smoke test is only for validating setup. The **Serverless job path** i
 This tutorial uses a pre-built container image:
 
 ```bash
-docker run --rm mnrozhkov/openmm-serverless:v0.1.3 --protein-id 1UBQ --steps 200
+docker run --rm mnrozhkov/openmm-serverless:v0.1.5 --protein-id 1UBQ --steps 200
 ```
 
 This image contains the OpenMM runtime and the example code used throughout the guide.
@@ -107,6 +108,8 @@ At this stage:
 - no S3 configuration is required
 - outputs stay inside the container unless you explicitly mount storage
 - this is meant only as a validation step
+
+> **Note:** local Docker on macOS does not expose NVIDIA GPUs, so GPU utilization checks must be done on a Serverless GPU job.
 
 Use this default path if you want to focus on the workflow first. If you prefer to inspect or customize the environment, you can build and push your own image later in [How to Adapt](#how-to-adapt).
 
@@ -134,7 +137,7 @@ Start with a minimal job run:
 ```bash
 nebius ai job create \
   --name "quick-serverless-openmm" \
-  --image "mnrozhkov/openmm-serverless:v0.1.3" \
+  --image "mnrozhkov/openmm-serverless:v0.1.5" \
   --platform "gpu-l40s-a" \
   --preset "1gpu-8vcpu-32gb" \
   --timeout "1h" \
@@ -161,25 +164,28 @@ This run validates that:
 
 > **Important:** without S3 configuration, outputs are written only to ephemeral container disk and are deleted when the job completes.
 
-<!-- markdownlint-disable MD033 -->
-<details>
-<summary>Optional: use the helper script instead</summary>
+### 3.1 Verify GPU usage
 
-```bash
-bash ./scripts/run_serverless.sh --debug 1UBQ 1000
+Check logs. Expected line for a healthy GPU run:
+
+```text
+Starting MD simulation for ...
+Loading PDB structure...
+Using OpenMM platform: CUDA
 ```
 
-In `--debug` mode:
+Optional deeper check (manual diagnostic job):
 
-- missing S3/AWS env vars produce warnings rather than hard failures
-- results are written only to container boot disk
-- container boot disk is ephemeral and is deleted when the job completes
-
-Use `debug` mode only to validate job submission and execution.
-Do **not** use it for runs where you want to keep outputs.
-
-</details>
-<!-- markdownlint-enable MD033 -->
+```bash
+nebius ai job create \
+  --name "openmm-test-installation" \
+  --image "mnrozhkov/openmm-serverless:v0.1.5" \
+  --platform "gpu-l40s-a" \
+  --preset "1gpu-8vcpu-32gb" \
+  --timeout "1h" \
+  --entrypoint "python" \
+  --args "-m openmm.testInstallation"
+```
 
 ---
 
@@ -214,7 +220,7 @@ docker run --rm \
   -e S3_BUCKET="$S3_BUCKET" \
   -e S3_PREFIX="$S3_PREFIX" \
   -e S3_ENDPOINT_URL="$S3_ENDPOINT_URL" \
-  "mnrozhkov/openmm-serverless:v0.1.3" --protein-id 1UBQ --steps 200
+  "mnrozhkov/openmm-serverless:v0.1.5" --protein-id 1UBQ --steps 200
 ```
 
 This is a faster way to validate:
@@ -232,7 +238,7 @@ Once Docker + S3 works, run the full Serverless job:
 ```bash
 nebius ai job create \
   --name "openmm-persistent-1ubq" \
-  --image "mnrozhkov/openmm-serverless:v0.1.3" \
+  --image "mnrozhkov/openmm-serverless:v0.1.5" \
   --platform "gpu-l40s-a" \
   --preset "1gpu-8vcpu-32gb" \
   --timeout "4h" \
@@ -283,19 +289,6 @@ A successful persistent run should produce:
 - a metadata file
 - optional plots
 
-<!-- markdownlint-disable MD033 -->
-<details>
-<summary>Optional: use the helper script instead</summary>
-
-```bash
-bash ./scripts/run_serverless.sh 1UBQ 1000
-```
-
-Use the direct CLI path to understand the full workflow. Use the helper script when you want a shorter repeatable command.
-
-</details>
-<!-- markdownlint-enable MD033 -->
-
 ---
 
 ## 5. Run additional simulations
@@ -307,7 +300,7 @@ Examples:
 ```bash
 nebius ai job create \
   --name "openmm-2ptc-2000" \
-  --image "mnrozhkov/openmm-serverless:v0.1.3" \
+  --image "mnrozhkov/openmm-serverless:v0.1.5" \
   --platform "gpu-l40s-a" \
   --preset "1gpu-8vcpu-32gb" \
   --timeout "4h" \
@@ -320,13 +313,39 @@ nebius ai job create \
   --args "--protein-id 2PTC --steps 2000" # Change protein and steps here
 ```
 
-Or with the helper script:
+<!-- markdownlint-disable MD033 -->
+<details>
+<summary>Optional: use the helper script for debug, strict, and repeated runs</summary>
+
+Debug-mode smoke test (no S3 persistence required):
+
+```bash
+bash ./scripts/run_serverless.sh --debug 1UBQ 1000
+```
+
+In `--debug` mode:
+
+- missing S3/AWS env vars produce warnings rather than hard failures
+- results are written only to container boot disk
+- container boot disk is ephemeral and is deleted when the job completes
+
+Strict-mode persistent run (requires S3 env vars):
+
+```bash
+bash ./scripts/run_serverless.sh 1UBQ 1000
+```
+
+Run additional simulations with new args:
 
 ```bash
 bash ./scripts/run_serverless.sh 1UBQ 1000
 bash ./scripts/run_serverless.sh 2PTC 2000
 bash ./scripts/run_serverless.sh 1CRN 5000
 ```
+
+</details>
+<!-- markdownlint-enable MD033 -->
+
 
 ---
 
@@ -351,7 +370,7 @@ Use this section if you want to run with your own image repository (public or pr
 openmm-simulation-s3
 ```
 
-2. Create a service account and access key, and add the service account to the `editors` group.
+1. Create a service account and access key, and add the service account to the `editors` group.
    Follow: [Nebius Object Storage quickstart](https://docs.nebius.com/object-storage/quickstart#configure-access-credentials-and-aws-cli-settings)
 
 At the end of this step, you should have:
@@ -359,7 +378,7 @@ At the end of this step, you should have:
 - `NB_ACCESS_KEY_AWS_ID`
 - `NB_SECRET_ACCESS_KEY`
 
-3. Export the environment variables used by this example.
+1. Export the environment variables used by this example.
 
     <!-- markdownlint-disable MD033 -->
     <details>
@@ -377,7 +396,7 @@ At the end of this step, you should have:
     </details>
     <!-- markdownlint-enable MD033 -->
 
-4. Validate access to the bucket.
+1. Validate access to the bucket.
 
 ```bash
 aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
@@ -396,7 +415,6 @@ To override the cache location explicitly:
 ```bash
 python -m sim.run --protein-id 1UBQ --steps 1000 --pdb-cache-dir /mnt/pdb-files
 ```
-
 
 ### Use your docker image
 
