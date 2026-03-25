@@ -4,6 +4,8 @@ This tutorial shows how to deploy [OpenClaw](https://github.com/openclaw/opencla
 
 No GPU required. You pay only when the gateway is active.
 
+> **This is a demo setup, not production-ready.** The endpoint is created without Nebius-level authentication (`--auth`), meaning anyone with the IP can reach it. See [Security considerations](#security-considerations) below.
+
 ## How it works
 
 ```
@@ -239,6 +241,24 @@ If someone has already deployed the gateway and wants to share access:
    ```
 
 3. Open the `https://xxxx.trycloudflare.com` URL in your browser, paste the token, click **Connect**.
+
+---
+
+## Security considerations
+
+This tutorial creates a **public endpoint without Nebius-level authentication** (`--public` and no `--auth` flag). That means anyone who discovers the endpoint IP can send requests to it. The only protection is the OpenClaw `AUTH_TOKEN`.
+
+For production deployments, you should add Nebius endpoint authentication by passing `--auth` when creating the endpoint. This requires callers to present a valid token before traffic even reaches the container.
+
+**What this means in practice:**
+
+- **Demo / personal use** — the current setup is fine. The `AUTH_TOKEN` prevents unauthorized access at the application level, and you can delete the endpoint when you're done.
+- **Production** — do not expose the endpoint publicly without Nebius-level auth. Options include:
+  - Add `--auth` to the `nebius ai endpoint create` command to enforce authentication at the platform level
+  - Put the endpoint behind a reverse proxy or API gateway that handles authentication
+  - Run the endpoint in a private subnet and access it only through a VPN or tunnel
+
+**In any case:** keep your tokens secret. If either is compromised, rotate it immediately and redeploy.
 
 ---
 
