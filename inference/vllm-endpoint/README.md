@@ -51,7 +51,7 @@ export SUBNET_ID=$(nebius vpc subnet list --format jsonpath='{.items[0].metadata
 
 nebius ai endpoint create \
   --name vllm-qwen-chat \
-  --image vllm/vllm-openai:cu130-nightly-e68de8adc0301babb3bb3fcd2ddccaf98e7695c8 \
+  --image vllm/vllm-openai:v0.18.0-cu130 \
   --container-command "python3 -m vllm.entrypoints.openai.api_server" \
   --args "--model $MODEL_ID --host 0.0.0.0 --port 8000" \
   --platform gpu-l40s-a \
