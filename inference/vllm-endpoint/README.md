@@ -47,6 +47,7 @@ It gives you a production-style serving pattern you can reuse for model APIs and
 ```bash
 export MODEL_ID="Qwen/Qwen3-0.6B"
 export AUTH_TOKEN="$(openssl rand -hex 32)"
+export SUBNET_ID=$(nebius vpc subnet list --format jsonpath='{.items[0].metadata.id}')
 
 nebius ai endpoint create \
   --name vllm-qwen-chat \
@@ -60,7 +61,8 @@ nebius ai endpoint create \
   --auth token \
   --token "$AUTH_TOKEN" \
   --shm-size 16Gi \
-  --disk-size 450Gi
+  --disk-size 450Gi \
+  --subnet-id "$SUBNET_ID"
 
 nebius ai endpoint list
 export ENDPOINT_ID="<endpoint-id>"
