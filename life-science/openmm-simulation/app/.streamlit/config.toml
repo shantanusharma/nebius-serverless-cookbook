@@ -1,0 +1,7 @@
+[server]
+# Rerun the app when Python/source files change (local dev).
+runOnSave = true
+fileWatcherType = "auto"
+
+[browser]
+gatherUsageStats = false

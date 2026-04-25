@@ -1,243 +1,165 @@
 ---
-title: OpenMM Serverless Molecular Dynamics with Nebius AI Jobs
+title: OpenMM Serverless Molecular Dynamics on Nebius AI Jobs
 category: life-sciences
 type: batch-job
 runtime: nebius-ai-jobs
 frameworks: [openmm, python]
 keywords: [molecular-simulation, serverless-jobs, s3, cuda]
-difficulty: intermediate
+difficulty: beginner-friendly
 ---
 
-<!-- markdownlint-disable MD025 -->
-# OpenMM Serverless Molecular Dynamics with Nebius AI Jobs
+# Molecular Dynamics in the Cloud with OpenMM + Nebius AI Jobs
 
-This example runs a short OpenMM molecular dynamics simulation from a PDB structure, then writes trajectory, logs, metadata, and plots to object storage.
+Run a GPU-accelerated protein simulation in under 5 minutes — no local GPU, no environment setup, no CUDA drivers.
 
-It is designed as a practical workflow example for running short MD jobs on Nebius AI Jobs, validating the container locally, and persisting outputs to object storage. It is **not** intended to be a production-ready or scientifically validated MD protocol without further adaptation.
+If this is your first run, use this exact path: **Step 2 (S3 setup) → Step 3 (launch) → Step 4 (download results)**.
 
-## 📋 Table of Contents
+For **local setup**, **helper scripts** (`scripts/setup.sh`, `run_docker.sh`, `run_serverless.sh`), and deeper customization, see **[DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)**.
 
-- [🎯 What You'll Learn](#-what-youll-learn)
-- [🚀 Prerequisites](#-prerequisites)
-- [1. Validate local setup](#1-validate-local-setup)
-- [2. Start with the pre-built container](#2-start-with-the-pre-built-container)
-- [3. Run your first Serverless job](#3-run-your-first-serverless-job)
-- [4. Add S3-backed persistence](#4-add-s3-backed-persistence)
-- [5. Run additional simulations](#5-run-additional-simulations)
-- [🧱 Project Structure](#-project-structure)
-- [How to Adapt](#how-to-adapt)
-- [🆘 Troubleshooting](#-troubleshooting)
+**How this doc is organized:** a **quick start** you can paste immediately, a short **what / why**, **prerequisites**, then **Steps 1–4** (local smoke test → S3 → GPU job → download results). After that: optional **local demos** (Streamlit + Docker), **more simulations**, **project layout**, **customization**, and **troubleshooting**.
 
----
-
-## 🎯 What You'll Learn
-
-This guide shows how to:
-
-1. Validate the OpenMM environment with a short local smoke test.
-2. Validate the container locally before using Serverless.
-3. Run a GPU-backed molecular dynamics job with Nebius AI Jobs.
-4. Persist simulation outputs to S3-compatible object storage.
-5. Re-run the same container with different proteins or step counts.
-6. Adapt the example for your own image, storage setup, or PDB cache.
-
-## 🚀 Prerequisites
-
-- Nebius CLI installed and authenticated
-- Python `3.11+` installed locally
-- Docker installed locally
-- Access to Nebius Serverless Jobs
-
-## Expected run profile
-
-- Compute: `gpu-l40s-a`, preset `1gpu-8vcpu-32gb`
-- Example output: processed PDB, trajectory, simulation log, metadata, plots
-- Best for: validating containerized OpenMM workflows on Nebius AI Jobs
-- CUDA stack in this example is pinned to OpenMM `8.4.*` + `cuda-version=12` for broad driver compatibility
-
-For persistent runs, you will also need Nebius Object Storage (S3-compatible). This is covered in [How to Adapt: Configure Nebius Object Storage (S3)](#configure-nebius-object-storage-s3).
+| Section | What you get | Typical time |
+| --- | --- | --- |
+| [⚡ Quick start](#-30-second-quick-start) | One `job create` on GPU (no S3 persistence) | ~1 min |
+| [Step 1 — Local smoke test](#step-1--try-it-locally-first-optional-but-recommended) | Same image as cloud, CPU-only | ~2–5 min |
+| [Step 2 — Object storage](#step-2--set-up-object-storage) | Bucket + credentials + env vars | ~10–15 min first time |
+| [Step 3 — GPU job with S3](#step-3--launch-a-gpu-job-with-persistence) | Persist logs, trajectory, plots | ~1–5 min compute |
+| [Step 4 — Get results](#step-4--get-your-results) | List / sync run folder locally | ~2 min |
+| [Local demos](#local-demos-optional) | Streamlit UI or Docker one-liner (optional) | ~2 min setup |
+| [Run more simulations](#run-more-simulations) | Other proteins and step counts | — |
+| [Project layout](#project-layout) | Where code, assets, and results live | ~1 min read |
+| [Adapting to your use case](#adapting-to-your-own-use-case) | Custom PDB, own image, GPU sanity check | — |
+| [Troubleshooting](#troubleshooting) | Common failures and fixes | — |
 
 ---
 
-## 1. Validate local setup
+## ⚡ 30-second quick start
 
-**Goal:** Confirm that the Python environment and simulation entrypoint work before testing containers or Serverless Jobs.
-
-### Setup local environment
-
-```bash
-uv venv --python python3
-source .venv/bin/activate
-uv pip install .
-```
-
-### Quick local smoke test
-
-```bash
-python -m sim.run --protein-id 1UBQ --steps 200
-```
-
-A bundled PDB file (`assets/pdb/1UBQ.pdb`) is included so the first run works offline.
-
-A successful run should produce local simulation artifacts such as:
-
-- processed structure files
-- a short trajectory
-- logs and metadata
-
-The local smoke test is only for validating setup. The **Serverless job path** is the main GPU-backed workflow for this tutorial.
-
----
-
-## 2. Start with the pre-built container
-
-**Goal:** Use the fastest path first and validate the container locally before running on Serverless.
-
-This tutorial uses a pre-built container image:
-
-```bash
-docker run --rm mnrozhkov/openmm-serverless:v0.1.5 --protein-id 1UBQ --steps 200
-```
-
-This image contains the OpenMM runtime and the example code used throughout the guide.
-
-Running it locally in Docker is the fastest way to catch container or runtime issues before using Serverless.
-
-At this stage:
-
-- no S3 configuration is required
-- outputs stay inside the container unless you explicitly mount storage
-- this is meant only as a validation step
-
-> **Note:** local Docker on macOS does not expose NVIDIA GPUs, so GPU utilization checks must be done on a Serverless GPU job.
-
-Use this default path if you want to focus on the workflow first. If you prefer to inspect or customize the environment, you can build and push your own image later in [How to Adapt](#how-to-adapt).
-
-<!-- markdownlint-disable MD033 -->
-<details>
-<summary>Optional: use the helper script instead</summary>
-
-```bash
-bash ./scripts/run_docker.sh 1UBQ 200
-```
-
-Use the direct `docker run` path to understand the workflow. Use the helper script if you want a shorter command.
-
-</details>
-<!-- markdownlint-enable MD033 -->
-
----
-
-## 3. Run your first Serverless job
-
-**Goal:** Validate the end-to-end Serverless flow with the minimum setup.
-
-Start with a minimal job run:
+Pick a protein. Launch the job. Get results.
 
 ```bash
 nebius ai job create \
-  --name "quick-serverless-openmm" \
+  --name "my-first-md-job" \
   --image "mnrozhkov/openmm-serverless:v0.1.5" \
   --platform "gpu-l40s-a" \
   --preset "1gpu-8vcpu-32gb" \
-  --timeout "1h" \
-  --args "--protein-id 1UBQ --steps 200"
+  --args "--protein-id 1UBQ --steps 1000"
 ```
 
-If your project has multiple subnets, append:
+That's it. A GPU spins up and runs the simulation. No results stored (VM and boot disk removed on completion). For **writing results to your bucket**, add the `--env` lines from [Step 3](#step-3--launch-a-gpu-job-with-persistence).
 
-```bash
---subnet-id "$SUBNET_ID"
-```
-
-Copy the returned job ID and follow logs with:
-
-```bash
-nebius ai logs <job-id> --follow
-```
-
-This run validates that:
-
-- the container starts correctly on Nebius AI Jobs
-- the simulation executes on Serverless
-- logs are available through the CLI
-
-> **Important:** without S3 configuration, outputs are written only to ephemeral container disk and are deleted when the job completes.
-
-### 3.1 Verify GPU usage
-
-Check logs. Expected line for a healthy GPU run:
-
-```text
-Starting MD simulation for ...
-Loading PDB structure...
-Using OpenMM platform: CUDA
-```
-
-Optional deeper check (manual diagnostic job):
-
-```bash
-nebius ai job create \
-  --name "openmm-test-installation" \
-  --image "mnrozhkov/openmm-serverless:v0.1.5" \
-  --platform "gpu-l40s-a" \
-  --preset "1gpu-8vcpu-32gb" \
-  --timeout "1h" \
-  --entrypoint "python" \
-  --args "-m openmm.testInstallation"
-```
+> **Multiple subnets?** If the CLI says to pick a subnet, export `SUBNET_ID` and append `--subnet-id "$SUBNET_ID"` to the command, or use the local Streamlit dashboard (sidebar **Nebius job network**).
 
 ---
 
-## 4. Add S3-backed persistence
+### What this example does
 
-**Goal:** Persist simulation outputs and validate the full end-to-end flow.
+When you run **`nebius ai job create`** with `--image` and `--args`, Nebius AI Jobs starts a cloud worker, pulls your image, runs the container, and forwards your `--args` to the simulation command.
 
-### 4.1 Configure Nebius Object Storage
+Everything below happens **inside the running container** — your laptop does not need OpenMM or CUDA installed.
 
-Export the environment variables described in [How to Adapt: Configure Nebius Object Storage (S3)](#configure-nebius-object-storage-s3).
+```
+Inside the container (OpenMM driver / sim package)
+──────────────────────────────────────────────────
+Resolve protein (e.g. 1UBQ) → load or fetch PDB
+        ↓
+Solvate → energy minimization
+        ↓
+AMBER ff14SB + TIP3P · NPT ensemble · 300 K
+        ↓
+Trajectory + logs + plots → S3 bucket
+```
 
-At minimum, the example expects:
+**Use this example to:**
+- Validate a containerized OpenMM workflow on real GPU hardware
+- Learn the Nebius AI Jobs submission pattern
+- Build a reusable template for your own simulations
+
+> **Not for:** production MD protocols. Timestep, box padding, and equilibration are set for quick validation. Adapt these for scientific use.
+
+---
+
+## Prerequisites
+
+Install the [Nebius AI Cloud CLI](https://docs.nebius.com/cli/install) and [configure it](https://docs.nebius.com/cli/configure).
+
+| Requirement | Why you need it |
+|---|---|
+| Nebius CLI (authenticated) | Submit and monitor jobs |
+| Nebius Object Storage bucket | Persist results (see setup below) |
+| Docker (optional) | Local smoke test before cloud run |
+| Subnet ID (sometimes) | Only if your project has **multiple subnets** — same value as `--subnet-id` for `job create` |
+
+---
+
+## Step 1 — Try it locally first (optional but recommended)
+
+Validate the container on your laptop before using cloud credits.
+
+```bash
+docker run --rm mnrozhkov/openmm-serverless:v0.1.5 \
+  --protein-id 1UBQ --steps 200
+```
+
+You should see something like:
+
+```
+Loading PDB structure for 1UBQ...
+Running force field: AMBER ff14SB + TIP3P water
+Minimizing energy (1231 atoms)...
+OpenMM platform detected: CPU
+Starting NPT production run...
+Step 200 | Temp: 300.1 K | E_pot: -45189.4 kJ/mol
+Simulation complete.
+```
+
+> **macOS note:** Docker on macOS cannot use NVIDIA GPUs. `OpenMM platform: CPU` is expected here. The cloud job will use CUDA.
+
+---
+
+## Step 2 — Set up object storage
+
+Results are written to S3-compatible storage. One-time setup.
+
+**Create a bucket and credentials:**
+Follow the [Nebius Object Storage quickstart](https://docs.nebius.com/object-storage/quickstart#configure-access-credentials-and-aws-cli-settings) to get:
+- A bucket (e.g. `openmm-simulation-s3`)
+- `NB_ACCESS_KEY_AWS_ID` and `NB_SECRET_ACCESS_KEY`
+
+**Export these in your shell:**
 
 ```bash
 export AWS_ACCESS_KEY_ID="$NB_ACCESS_KEY_AWS_ID"
 export AWS_SECRET_ACCESS_KEY="$NB_SECRET_ACCESS_KEY"
-export AWS_DEFAULT_REGION="eu-north1" # change to region in your project
+export AWS_DEFAULT_REGION="eu-north1"
 export S3_ENDPOINT_URL="https://storage.eu-north1.nebius.cloud"
 export S3_BUCKET="openmm-simulation-s3"
 export S3_PREFIX="openmm"
 ```
 
-### 4.2 Validate S3-backed execution in Docker first
+**Verify access:**
 
-Before using Serverless, test the upload path locally in Docker:
+Use the same shell as the `export` block above, or run those exports again so `AWS_*` and `S3_BUCKET` are set. With credentials and region from Step 2 (and the [Nebius quickstart](https://docs.nebius.com/object-storage/quickstart#configure-access-credentials-and-aws-cli-settings) AWS config if you used it), listing usually works **without** `--endpoint-url`:
 
 ```bash
-docker run --rm \
-  -e AWS_ACCESS_KEY_ID="$AWS_ACCESS_KEY_ID" \
-  -e AWS_SECRET_ACCESS_KEY="$AWS_SECRET_ACCESS_KEY" \
-  -e AWS_DEFAULT_REGION="$AWS_DEFAULT_REGION" \
-  -e S3_BUCKET="$S3_BUCKET" \
-  -e S3_PREFIX="$S3_PREFIX" \
-  -e S3_ENDPOINT_URL="$S3_ENDPOINT_URL" \
-  "mnrozhkov/openmm-serverless:v0.1.5" --protein-id 1UBQ --steps 200
+aws s3 ls "s3://$S3_BUCKET"
 ```
 
-This is a faster way to validate:
+If your CLI is **not** configured for Nebius Object Storage and the command fails or hits the wrong endpoint, pass the URL explicitly (avoid an empty value: that triggers **`scheme is missing`**):
 
-- container runtime
-- S3 credentials
-- upload logic
+```bash
+aws s3 ls "s3://$S3_BUCKET" --endpoint-url "${S3_ENDPOINT_URL:-https://storage.eu-north1.nebius.cloud}"
+```
 
-before running a full Serverless job.
+Success check: the command prints your bucket contents (or no error if the bucket is empty).
 
-### 4.3 Run a persistent Serverless job
+---
 
-Once Docker + S3 works, run the full Serverless job:
+## Step 3 — Launch a GPU job with persistence
 
 ```bash
 nebius ai job create \
-  --name "openmm-persistent-1ubq" \
+  --name "openmm-1ubq-1k" \
   --image "mnrozhkov/openmm-serverless:v0.1.5" \
   --platform "gpu-l40s-a" \
   --preset "1gpu-8vcpu-32gb" \
@@ -251,237 +173,171 @@ nebius ai job create \
   --args "--protein-id 1UBQ --steps 1000"
 ```
 
-Each run writes results under a unique prefix inside:
+> **Multiple VPC subnets:** If your tenancy has more than one subnet (or the CLI asks you to choose), add **`--subnet-id "subnet-xxxxxxxx"`** to `job create` after **`--timeout`** (same line as the other flags). Use the subnet ID from the CLI prompt or your network setup. With a single subnet, or when the CLI does not require it, omit this flag.
 
-```text
-s3://$S3_BUCKET/$S3_PREFIX/
+Copy the returned job ID, then follow logs live:
+
+```bash
+nebius ai logs <job-id> --follow
 ```
 
-Typical artifacts:
+**Healthy run looks like:**
 
-```text
-<run-id>/
-├── <protein>.pdb
-├── <protein>_processed.pdb
-├── <protein>_trajectory.dcd
-├── <protein>_simulation.log
-├── <protein>_metadata.txt
-└── plots/
+```
+Loading PDB structure for 1UBQ...
+OpenMM platform detected: CUDA         ← GPU confirmed
+Starting NPT production run...
+Step 500  | Temp: 299.8 K | E_pot: -45201.3 kJ/mol
+Step 1000 | Temp: 300.1 K | E_pot: -45198.7 kJ/mol
+✓ Uploading to s3://openmm-simulation-s3/openmm/<run-id>/
+✓ All artifacts saved successfully.
 ```
 
-List result prefixes:
+---
+
+## Step 4 — Get your results
+
+List completed runs:
+
+Re-use the **Step 2** exports in this shell (or run that `export` block again in a new terminal).
 
 ```bash
 aws s3 ls "s3://$S3_BUCKET/$S3_PREFIX/"
 ```
 
-Download one run locally:
+Success check: you see one or more run folders (prefixes) under `s3://$S3_BUCKET/$S3_PREFIX/`.
+
+If listing fails without an explicit endpoint, add  
+`--endpoint-url "${S3_ENDPOINT_URL:-https://storage.eu-north1.nebius.cloud}"`  
+(do not pass `--endpoint-url` when the variable is empty, or AWS CLI errors with **`scheme is missing`**).
+
+Download a run:
 
 ```bash
-aws s3 sync "s3://$S3_BUCKET/$S3_PREFIX/<run-id>/" "./results/<run-id>/"
+aws s3 sync \
+  "s3://$S3_BUCKET/$S3_PREFIX/<run-id>/" \
+  "./results/<run-id>/"
 ```
 
-A successful persistent run should produce:
+Use the same `--endpoint-url "..."` suffix on `sync` only when you need it for your AWS CLI setup.
 
-- a processed PDB file
-- a trajectory file (`.dcd`)
-- a simulation log
-- a metadata file
-- optional plots
+**What you'll find:**
+
+```
+<run-id>/
+├── 1UBQ.pdb                  ← original input
+├── 1UBQ_processed.pdb        ← solvated, minimized
+├── 1UBQ_trajectory.dcd       ← full MD trajectory
+├── 1UBQ_simulation.log       ← step-by-step energy & temperature
+├── 1UBQ_metadata.txt         ← run parameters for reproducibility
+└── plots/                    ← RMSD and energy plots
+```
+
+Open the trajectory in **VMD**, **PyMOL**, or **NGLview** (Jupyter):
+
+```python
+import nglview as nv, mdtraj as md
+traj = md.load("results/<run-id>/1UBQ_trajectory.dcd",
+               top="results/<run-id>/1UBQ_processed.pdb")
+nv.show_mdtraj(traj)
+```
 
 ---
 
-## 5. Run additional simulations
+## Run more simulations
 
-**Goal:** Reuse the same image and launch more jobs by changing input arguments.
+Same image, different protein or step count — just change `--args`:
 
-Examples:
+```bash
+# Classic folding benchmark
+nebius ai job create ... --args "--protein-id 1CRN --steps 5000"
+
+# Protease–inhibitor complex
+nebius ai job create ... --args "--protein-id 2PTC --steps 2000"
+
+# Villin headpiece (ultra-fast folder)
+nebius ai job create ... --args "--protein-id 1VII --steps 10000"
+```
+
+---
+
+## Project layout
+
+```
+.
+├── sim/              Python package: simulation, metadata, S3 upload
+├── assets/pdb/       Bundled PDB files (offline fallback)
+├── scripts/          Docker + job helpers — [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md)
+└── results/          Local output directory (created at runtime)
+```
+
+---
+
+## Adapting to your own use case
+
+<details>
+<summary>Use a custom PDB file</summary>
+
+Copy your PDB to the container or point to a custom cache:
+
+```bash
+--args "--protein-id MY_PROTEIN --steps 1000 --pdb-cache-dir /mnt/pdb-files"
+```
+
+</details>
+
+<details>
+<summary>Build and push your own image</summary>
+
+```bash
+export IMAGE_TAG="v1.0.0"
+export REGISTRY="your-dockerhub-user"
+
+docker build --platform linux/amd64 -t openmm-serverless:${IMAGE_TAG} .
+docker tag openmm-serverless:${IMAGE_TAG} ${REGISTRY}/openmm-serverless:${IMAGE_TAG}
+docker push ${REGISTRY}/openmm-serverless:${IMAGE_TAG}
+```
+
+`REGISTRY` is agnostic — works with Docker Hub, Nebius Container Registry, or any OCI-compatible registry.
+
+</details>
+
+<details>
+<summary>Verify GPU utilization explicitly</summary>
 
 ```bash
 nebius ai job create \
-  --name "openmm-2ptc-2000" \
+  --name "openmm-gpu-check" \
   --image "mnrozhkov/openmm-serverless:v0.1.5" \
   --platform "gpu-l40s-a" \
   --preset "1gpu-8vcpu-32gb" \
-  --timeout "4h" \
-  --env "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" \
-  --env "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" \
-  --env "AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION" \
-  --env "S3_BUCKET=$S3_BUCKET" \
-  --env "S3_PREFIX=$S3_PREFIX" \
-  --env "S3_ENDPOINT_URL=$S3_ENDPOINT_URL" \
-  --args "--protein-id 2PTC --steps 2000" # Change protein and steps here
-```
-
-<!-- markdownlint-disable MD033 -->
-<details>
-<summary>Optional: use the helper script for debug, strict, and repeated runs</summary>
-
-Debug-mode smoke test (no S3 persistence required):
-
-```bash
-bash ./scripts/run_serverless.sh --debug 1UBQ 1000
-```
-
-In `--debug` mode:
-
-- missing S3/AWS env vars produce warnings rather than hard failures
-- results are written only to container boot disk
-- container boot disk is ephemeral and is deleted when the job completes
-
-Strict-mode persistent run (requires S3 env vars):
-
-```bash
-bash ./scripts/run_serverless.sh 1UBQ 1000
-```
-
-Run additional simulations with new args:
-
-```bash
-bash ./scripts/run_serverless.sh 1UBQ 1000
-bash ./scripts/run_serverless.sh 2PTC 2000
-bash ./scripts/run_serverless.sh 1CRN 5000
+  --entrypoint "python" \
+  --args "-m openmm.testInstallation"
 ```
 
 </details>
-<!-- markdownlint-enable MD033 -->
-
 
 ---
 
-## 🧱 Project Structure
+## Demos and scripts (optional)
 
-- `scripts/` — runnable helper scripts for setup, Docker validation, and job submission
-- `sim/` — Python modules for simulation, metadata, and S3 upload logic
-- `assets/` — static files and bundled local PDB fallback cache
-- `results/` - folder created during local/docker runs, contains simulation results
+Use these after you are comfortable with the steps above — lab meetings, onboarding, or day-to-day runs without re-reading the CLI flow.
 
----
+| Aid | Run | Best for |
+| --- | --- | --- |
+| **Streamlit dashboard** | From the project root: `uv sync --group app`, then `cd app && uv run --group app streamlit run app.py` | Select protein → submit → monitor → plots from S3; reads the same env vars as the CLI |
+| **Job / Docker scripts** | `bash ./scripts/run_serverless.sh …`, `bash ./scripts/run_docker.sh …` | Scripted submit and local S3 validation — [DEVELOPER_GUIDE.md](DEVELOPER_GUIDE.md) |
 
-## How to Adapt
-
-Use this section if you want to run with your own image repository (public or private) instead of the default public path.
-
-### Configure Nebius Object Storage (S3)
-
-1. Create a bucket, for example:
-
-```text
-openmm-simulation-s3
-```
-
-1. Create a service account and access key, and add the service account to the `editors` group.
-   Follow: [Nebius Object Storage quickstart](https://docs.nebius.com/object-storage/quickstart#configure-access-credentials-and-aws-cli-settings)
-
-At the end of this step, you should have:
-
-- `NB_ACCESS_KEY_AWS_ID`
-- `NB_SECRET_ACCESS_KEY`
-
-1. Export the environment variables used by this example.
-
-    <!-- markdownlint-disable MD033 -->
-    <details>
-    <summary>Copy/paste example (NB_* -> AWS_*)</summary>
-
-    ```bash
-    export AWS_ACCESS_KEY_ID="$NB_ACCESS_KEY_AWS_ID"
-    export AWS_SECRET_ACCESS_KEY="$NB_SECRET_ACCESS_KEY"
-    export AWS_DEFAULT_REGION="eu-north1" # change to region of your project
-    export S3_ENDPOINT_URL="https://storage.eu-north1.nebius.cloud"
-    export S3_BUCKET="openmm-simulation-s3"
-    export S3_PREFIX="openmm"
-    ```
-
-    </details>
-    <!-- markdownlint-enable MD033 -->
-
-1. Validate access to the bucket.
-
-```bash
-aws configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"
-aws configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"
-aws configure set region "$AWS_DEFAULT_REGION"
-aws configure set endpoint_url "$S3_ENDPOINT_URL"
-aws s3 ls "s3://$S3_BUCKET"
-```
-
-### Use custom PDB cache location
-
-By default, `sim.run` looks for PDB files in `assets/pdb/`.
-
-To override the cache location explicitly:
-
-```bash
-python -m sim.run --protein-id 1UBQ --steps 1000 --pdb-cache-dir /mnt/pdb-files
-```
-
-### Use your docker image
-
-```bash
-export IMAGE_TAG="<image-version>"
-export CONTAINER_REGISTRY_PATH="<registry>/<namespace>"
-docker build --platform linux/amd64 -t openmm-serverless:${IMAGE_TAG} .
-docker tag openmm-serverless:${IMAGE_TAG} "$CONTAINER_REGISTRY_PATH/openmm-serverless:${IMAGE_TAG}"
-docker push "$CONTAINER_REGISTRY_PATH/openmm-serverless:${IMAGE_TAG}"
-```
-
-<!-- markdownlint-disable MD033 -->
-<details>
-<summary>Example: use my Docker Hub repo</summary>
-
-```bash
-export IMAGE_TAG="v0.1.0"
-export CONTAINER_REGISTRY_PATH="mnrozhkov"
-docker build --platform linux/amd64 -t openmm-serverless:${IMAGE_TAG} .
-docker tag openmm-serverless:${IMAGE_TAG} "$CONTAINER_REGISTRY_PATH/openmm-serverless:${IMAGE_TAG}"
-docker push "$CONTAINER_REGISTRY_PATH/openmm-serverless:${IMAGE_TAG}"
-```
-
-</details>
-<!-- markdownlint-enable MD033 -->
-
-`CONTAINER_REGISTRY_PATH` is registry-agnostic and can point to Docker Hub, Nebius Container Registry, or any other OCI-compatible registry.
+The Streamlit app uses a bright theme, **hot-reloads** when you edit `app.py` (see `app/.streamlit/config.toml`), and passes `--subnet-id` when `SUBNET_ID` is set. See [`app/README.md`](app/README.md) for a short UI tour.
 
 ---
 
-## 🆘 Troubleshooting
+## Troubleshooting
 
-### OpenMM import issues
-
-```bash
-uv pip install --force-reinstall "openmm==8.4.0"
-```
-
-### S3 access or upload issues
-
-```bash
-aws s3 ls "s3://$S3_BUCKET" --endpoint-url "$S3_ENDPOINT_URL"
-aws configure list
-```
-
-### Job finishes but no results appear in S3
-
-Check that:
-
-- `S3_BUCKET`, `S3_PREFIX`, and `S3_ENDPOINT_URL` are set correctly
-- the service account has bucket access
-- you are not running in `--debug` mode
-
-### Invalid or missing PDB input
-
-Start with the bundled example:
-
-```bash
-python -m sim.run --protein-id 1UBQ --steps 200
-```
-
-If using custom structures, verify that the PDB file exists in the configured cache path.
-
-### GPU or preset issues
-
-If job submission fails, verify that:
-
-- your project has access to the selected platform
-- the selected preset is available in your region
-- quota is sufficient for the requested resources
+| Symptom | Fix |
+|---|---|
+| `OpenMM platform: CPU` in cloud logs | Platform or preset not set correctly — check `--platform gpu-l40s-a` |
+| Job completes but no S3 results | Check that all `AWS_*` and `S3_*` env vars are set and the bucket exists |
+| `ImportError: openmm` locally | `uv pip install --force-reinstall "openmm==8.4.0"` |
+| Job fails at PDB fetch | Start with the bundled `1UBQ` — it works offline |
+| `multiple subnets found` / subnet error on submission | Export `SUBNET_ID`, then add `--subnet-id "$SUBNET_ID"` to `job create` (Streamlit sidebar: **Nebius job network**) |
