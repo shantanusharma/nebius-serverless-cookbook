@@ -1,0 +1,60 @@
+#!/bin/bash
+# Build the lerobot-finetune image and run a local smoke test.
+#
+# Mounts train/ and configs/ from the host so you can edit run.py without rebuilding.
+# Outputs go to ./lerobot-outputs/ on the host.
+#
+# Usage:
+#   ./scripts/run_docker.sh [POLICY] [DATASET] [STEPS]
+#
+# Examples:
+#   ./scripts/run_docker.sh                              # act / lerobot/pusht / 50 steps
+#   SKIP_BUILD=1 ./scripts/run_docker.sh                 # skip docker build (faster iteration)
+#   ./scripts/run_docker.sh diffusion lerobot/pusht 100
+#
+# Environment variables:
+#   IMAGE       Override the image tag (default: lerobot-finetune:dev)
+#   HF_TOKEN    HuggingFace token (for private datasets)
+#   SKIP_BUILD  If set to 1, skip `docker build` (use after first successful build)
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+IMAGE="${IMAGE:-lerobot-finetune:dev}"
+POLICY="${1:-act}"
+DATASET="${2:-lerobot/pusht}"
+STEPS="${3:-50}"
+
+mkdir -p "${REPO_ROOT}/lerobot-outputs"
+
+if [ "${SKIP_BUILD:-0}" != "1" ]; then
+  echo "Building image: $IMAGE"
+  docker build --platform linux/amd64 -t "$IMAGE" "$REPO_ROOT"
+else
+  echo "SKIP_BUILD=1 — using existing image: $IMAGE"
+fi
+
+echo ""
+echo "Running smoke test (CPU, $STEPS steps)"
+echo "  Policy:  $POLICY"
+echo "  Dataset: $DATASET"
+echo "  Steps:   $STEPS"
+echo "  Host mounts: train/ configs/ -> container (edit run.py without rebuild)"
+echo "  Outputs:     ${REPO_ROOT}/lerobot-outputs/"
+echo ""
+echo "Note: 'Using device: cpu' is expected on a macOS or GPU-less host."
+echo "      GPU will be used automatically in the serverless job."
+echo ""
+
+docker run --rm \
+  --platform linux/amd64 \
+  -v "${REPO_ROOT}/train:/lerobot/train" \
+  -v "${REPO_ROOT}/configs:/lerobot/configs" \
+  -v "${REPO_ROOT}/lerobot-outputs:/lerobot/outputs" \
+  ${HF_TOKEN:+--env "HF_TOKEN=$HF_TOKEN"} \
+  "$IMAGE" \
+  --policy "$POLICY" \
+  --dataset "$DATASET" \
+  --steps "$STEPS"
