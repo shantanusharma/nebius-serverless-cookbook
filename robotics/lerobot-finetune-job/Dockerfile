@@ -61,31 +61,19 @@ ENV PATH="/root/.local/bin:$PATH"
 WORKDIR /lerobot
 RUN mkdir -p outputs
 
-# ── Step 2: Python 3.12 virtual environment ───────────────────────────────────
-# Docs: "uv python install 3.12 && uv venv --python 3.12"
+# ── Copy dependency files early for layer caching ─────────────────────────────
+COPY pyproject.toml ./
+
+# ── Python 3.12 virtual environment via uv ────────────────────────────────────
 RUN uv python install 3.12 && uv venv --python 3.12 .venv
 ENV VIRTUAL_ENV=/lerobot/.venv
 ENV PATH="/lerobot/.venv/bin:$PATH"
 
-# ── evdev (Linux) ─────────────────────────────────────────────────────────────
-# Docs: "sudo apt install libevdev-dev && uv pip install evdev"
-# Install evdev explicitly before lerobot so the C extension is built against
-# the system libevdev-dev headers already present above.
-RUN uv pip install evdev
+# ── Sync dependencies (runtime only) ─────────────────────────────────────────
+ENV UV_INDEX_STRATEGY=unsafe-best-match
+RUN uv sync --no-dev --python 3.12 --index-strategy unsafe-best-match
 
-# ── PyTorch ≥ 2.10 with CUDA 12.6 ────────────────────────────────────────────
-# Must be installed before lerobot so TorchCodec can link to system-wide ffmpeg
-# (requires PyTorch ≥ 2.10 / TorchCodec ≥ 0.10, per installation docs).
-RUN uv pip install torch torchvision \
-    --index-url https://download.pytorch.org/whl/cu126
-
-# ── Step 3: LeRobot + S3 client ───────────────────────────────────────────────
-# Docs: "uv pip install 'lerobot[pusht]'"  — adds gym-pusht simulation environment.
-# In v0.5.1 the training entry point is `lerobot-train` (lerobot.scripts.lerobot_train:main).
-# boto3 is added for checkpoint upload; not part of lerobot's own dependencies.
-RUN uv pip install "lerobot[pusht]" boto3
-
-# ── Entrypoint ────────────────────────────────────────────────────────────────
+# ── Entrypoint assets ─────────────────────────────────────────────────────────
 COPY train/ ./train/
 COPY configs/ ./configs/
 

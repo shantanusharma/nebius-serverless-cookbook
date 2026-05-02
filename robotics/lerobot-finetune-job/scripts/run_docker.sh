@@ -5,18 +5,17 @@
 # Outputs go to ./lerobot-outputs/ on the host.
 #
 # Usage:
-#   ./scripts/run_docker.sh [POLICY] [DATASET] [STEPS]
+#   ./scripts/run_docker.sh [--rebuild] [POLICY] [DATASET] [STEPS]
 #
 # Examples:
-#   ./scripts/run_docker.sh                              # act / lerobot/pusht / 50 steps
-#   SKIP_BUILD=1 ./scripts/run_docker.sh                 # skip docker build (faster iteration)
-#   ./scripts/run_docker.sh diffusion lerobot/pusht 100
+#   ./scripts/run_docker.sh                                    # skip build, run act / lerobot/pusht / 50
+#   ./scripts/run_docker.sh --rebuild                          # rebuild image, then run defaults
+#   ./scripts/run_docker.sh --rebuild diffusion lerobot/pusht 100
 #
 # Environment variables:
 #   IMAGE          Override the image tag (default: lerobot-finetune:dev)
 #   HF_TOKEN       HuggingFace token (for private datasets)
 #   WANDB_API_KEY  If set, passed into the container; train/run.py enables W&B
-#   SKIP_BUILD     If set to 1, skip `docker build` (use after first successful build)
 
 set -e
 
@@ -24,6 +23,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 IMAGE="${IMAGE:-lerobot-finetune:dev}"
+REBUILD=0
+if [ "${1:-}" = "--rebuild" ]; then
+  REBUILD=1
+  shift
+fi
+
 POLICY="${1:-act}"
 DATASET="${2:-lerobot/pusht}"
 STEPS="${3:-50}"
@@ -31,11 +36,11 @@ BATCH_SIZE="${BATCH_SIZE:-}"
 
 mkdir -p "${REPO_ROOT}/lerobot-outputs"
 
-if [ "${SKIP_BUILD:-0}" != "1" ]; then
-  echo "Building image: $IMAGE"
+if [ "$REBUILD" -eq 1 ]; then
+  echo "Rebuilding image: $IMAGE"
   docker build --platform linux/amd64 -t "$IMAGE" "$REPO_ROOT"
 else
-  echo "SKIP_BUILD=1 — using existing image: $IMAGE"
+  echo "Skipping build — using existing image: $IMAGE"
 fi
 
 echo ""

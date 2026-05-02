@@ -1,17 +1,19 @@
-"""Fine-tune a LeRobot policy and upload the checkpoint to S3.
-
-Entry point for the containerised training job:
-  python -m train.run --policy act --dataset lerobot/pusht --steps 5000
-"""
+"""Fine-tune a LeRobot policy and optionally upload the checkpoint to S3."""
 
 from __future__ import annotations
 
-import argparse
 import os
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+from enum import Enum
+
+import typer
+from pydantic import BaseModel, Field, ValidationError, field_validator
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
 
 try:
     import boto3
@@ -21,83 +23,66 @@ try:
 except ImportError:
     _BOTO3_AVAILABLE = False
 
-
-# ---------------------------------------------------------------------------
-# CLI
-# ---------------------------------------------------------------------------
+console = Console(force_terminal=True)
+app = typer.Typer(add_completion=False, no_args_is_help=True)
 
 
-def _parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Fine-tune a LeRobot policy (ACT or Diffusion) and persist the checkpoint to S3.",
-    )
-    parser.add_argument(
-        "--policy",
-        default="act",
-        choices=["act", "diffusion"],
-        help="Policy architecture (default: act)",
-    )
-    parser.add_argument(
-        "--dataset",
-        default="lerobot/pusht",
-        help="HuggingFace dataset repo_id (default: lerobot/pusht)",
-    )
-    parser.add_argument(
-        "--env",
-        default=None,
-        help=(
-            "Environment type for in-training evaluation, e.g. 'pusht'. "
-            "Omit (or leave empty) to skip evaluation and reduce job time."
-        ),
-    )
-    parser.add_argument(
-        "--steps",
-        type=int,
-        default=5000,
-        help="Number of offline training steps (default: 5000)",
-    )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=8,
-        help="Training batch size per GPU (default: 8). Increase on H100 (try 32–64).",
-    )
-    parser.add_argument(
-        "--eval-episodes",
-        type=int,
-        default=0,
-        help=(
-            "Episodes evaluated at each checkpoint (default: 0 = disabled). "
-            "Requires --env to be set."
-        ),
-    )
-    parser.add_argument(
-        "--output-dir",
-        default=None,
-        help="Local checkpoint output directory. Auto-generated with timestamp if omitted.",
-    )
-    return parser.parse_args()
+class Policy(str, Enum):
+    ACT = "act"
+    DIFFUSION = "diffusion"
 
 
-# ---------------------------------------------------------------------------
-# Training subprocess
-# ---------------------------------------------------------------------------
+class TrainConfig(BaseModel):
+    policy: Policy = Policy.ACT
+    dataset: str = Field(default="lerobot/pusht", min_length=1)
+    env: str | None = None
+    steps: int = Field(default=5000, gt=0)
+    batch_size: int = Field(default=8, gt=0)
+    eval_episodes: int = Field(default=0, ge=0)
+    output_dir: Path | None = None
+
+    @property
+    def dataset_slug(self) -> str:
+        return self.dataset.replace("/", "-")
 
 
-def _build_train_cmd(args: argparse.Namespace, output_dir: Path) -> list[str]:
-    """Build the LeRobot training command.
+class S3Config(BaseModel):
+    bucket: str
+    prefix: str = "lerobot"
+    endpoint_url: str | None = None
+    region: str = "eu-north1"
+    access_key: str
+    secret_key: str
 
-    In lerobot v0.5.1 the training entry point is the `lerobot-train` binary
-    (registered as lerobot.scripts.lerobot_train:main). The older module path
-    `lerobot.scripts.train` no longer exists in this release.
-    """
+    @field_validator("prefix")
+    @classmethod
+    def _normalize_prefix(cls, value: str) -> str:
+        return value.rstrip("/")
+
+    @classmethod
+    def from_env(cls) -> S3Config | None:
+        access_key = os.environ.get("AWS_ACCESS_KEY_ID")
+        secret_key = os.environ.get("AWS_SECRET_ACCESS_KEY")
+        bucket = os.environ.get("S3_BUCKET")
+        if not all([access_key, secret_key, bucket]):
+            return None
+        return cls(
+            bucket=bucket,
+            prefix=os.environ.get("S3_PREFIX", "lerobot"),
+            endpoint_url=os.environ.get("S3_ENDPOINT_URL"),
+            region=os.environ.get("AWS_DEFAULT_REGION", "eu-north1"),
+            access_key=access_key,
+            secret_key=secret_key,
+        )
+
+
+def _build_train_cmd(cfg: TrainConfig, output_dir: Path) -> list[str]:
+    """Build the LeRobot training command."""
     venv_bin = Path(sys.executable).parent
-    # Primary: `lerobot-train` binary registered by pip/uv (v0.5.1+)
     lerobot_train = venv_bin / "lerobot-train"
     if lerobot_train.is_file():
         base: list[str] = [str(lerobot_train)]
     else:
-        # Fallback: invoke as a module (older installs or editable source installs)
         import importlib.util
 
         module = (
@@ -107,125 +92,149 @@ def _build_train_cmd(args: argparse.Namespace, output_dir: Path) -> list[str]:
         )
         base = [sys.executable, "-m", module]
 
-    # v0.5.1 top-level flags (confirmed via `lerobot-train --help`):
-    #   --steps int, --batch_size int, --save_freq int, --num_workers int
     wandb_on = bool(os.environ.get("WANDB_API_KEY"))
     flags: list[str] = [
-        f"--policy.type={args.policy}",
-        # v0.5.1 defaults push_to_hub=True; without policy.repo_id validation fails.
-        # Use lowercase false (draccus bool parsing). See huggingface/lerobot#1641.
+        f"--policy.type={cfg.policy.value}",
         "--policy.push_to_hub=false",
-        f"--dataset.repo_id={args.dataset}",
-        f"--steps={args.steps}",
-        f"--batch_size={args.batch_size}",
+        f"--dataset.repo_id={cfg.dataset}",
+        f"--steps={cfg.steps}",
+        f"--batch_size={cfg.batch_size}",
         f"--output_dir={output_dir}",
         f"--wandb.enable={'true' if wandb_on else 'false'}",
     ]
-    if args.env:
-        flags.append(f"--env.type={args.env}")
-    if args.eval_episodes > 0 and args.env:
-        flags.append(f"--eval.n_episodes={args.eval_episodes}")
+    if cfg.env:
+        flags.append(f"--env.type={cfg.env}")
+    if cfg.eval_episodes > 0 and cfg.env:
+        flags.append(f"--eval.n_episodes={cfg.eval_episodes}")
     return base + flags
 
 
-# ---------------------------------------------------------------------------
-# S3 upload
-# ---------------------------------------------------------------------------
-
-
-def _make_s3_client() -> object | None:
+def _make_s3_client(cfg: S3Config | None):
+    if cfg is None:
+        console.print("[yellow]S3 upload skipped — missing env vars.[/yellow]")
+        return None
     if not _BOTO3_AVAILABLE:
-        print("boto3 not installed — S3 upload skipped.")
+        console.print("[yellow]boto3 not installed — S3 upload skipped.[/yellow]")
         return None
-    missing = [v for v in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY") if not os.environ.get(v)]
-    if missing:
-        print(f"S3 upload skipped — missing env vars: {', '.join(missing)}")
-        return None
-    region = os.environ.get("AWS_DEFAULT_REGION", "eu-north1")
     return boto3.client(
         "s3",
-        aws_access_key_id=os.environ["AWS_ACCESS_KEY_ID"],
-        aws_secret_access_key=os.environ["AWS_SECRET_ACCESS_KEY"],
-        region_name=region,
-        endpoint_url=os.environ.get("S3_ENDPOINT_URL"),
-        config=BotoConfig(region_name=region),
+        aws_access_key_id=cfg.access_key,
+        aws_secret_access_key=cfg.secret_key,
+        region_name=cfg.region,
+        endpoint_url=cfg.endpoint_url,
+        config=BotoConfig(region_name=cfg.region),
     )
 
 
-def _upload_checkpoint(output_dir: Path) -> bool:
-    """Recursively upload *output_dir* to S3. Returns True on success."""
-    client = _make_s3_client()
+def _upload_checkpoint(output_dir: Path, cfg: S3Config | None) -> bool:
+    client = _make_s3_client(cfg)
     if client is None:
         return False
-
-    bucket = os.environ.get("S3_BUCKET")
-    if not bucket:
-        print("S3_BUCKET not set — skipping upload.")
-        return False
-
-    prefix = os.environ.get("S3_PREFIX", "lerobot").rstrip("/")
-
     try:
-        client.head_bucket(Bucket=bucket)
-    except Exception as exc:
-        print(f"Cannot access bucket '{bucket}': {exc}")
+        client.head_bucket(Bucket=cfg.bucket)
+    except Exception as exc:  # noqa: BLE001
+        console.print(f"[yellow]Cannot access bucket '{cfg.bucket}': {exc}[/yellow]")
         return False
 
     files = [p for p in output_dir.rglob("*") if p.is_file()]
-    print(f"\nUploading {len(files)} files to s3://{bucket}/{prefix}/{output_dir.name}/")
+    console.print(
+        f"\nUploading {len(files)} files to s3://{cfg.bucket}/{cfg.prefix}/{output_dir.name}/"
+    )
     for local_path in files:
-        key = f"{prefix}/{output_dir.name}/{local_path.relative_to(output_dir).as_posix()}"
-        client.upload_file(str(local_path), bucket, key)
-        print(f"  {local_path.relative_to(output_dir)}")
+        key = f"{cfg.prefix}/{output_dir.name}/{local_path.relative_to(output_dir).as_posix()}"
+        client.upload_file(str(local_path), cfg.bucket, key)
+        console.print(f"  {local_path.relative_to(output_dir)}")
 
-    s3_path = f"s3://{bucket}/{prefix}/{output_dir.name}/"
-    print(f"\nCheckpoint saved to {s3_path}")
-    print(f'Download: aws s3 sync "{s3_path}" "./{output_dir.name}/"')
+    s3_path = f"s3://{cfg.bucket}/{cfg.prefix}/{output_dir.name}/"
+    console.print(f"\nCheckpoint saved to {s3_path}")
+    console.print(f'Download: aws s3 sync "{s3_path}" "./{output_dir.name}/"')
     return True
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+def _print_summary(cfg: TrainConfig, output_dir: Path, s3_cfg: S3Config | None) -> None:
+    table = Table(show_header=False, box=None, pad_edge=False)
+    table.add_row("Policy", cfg.policy.value)
+    table.add_row("Dataset", cfg.dataset)
+    table.add_row("Steps", str(cfg.steps))
+    table.add_row("Batch size", str(cfg.batch_size))
+    if cfg.env:
+        table.add_row("Env", cfg.env)
+    if cfg.eval_episodes > 0:
+        table.add_row("Eval episodes", str(cfg.eval_episodes))
+    table.add_row("Output", str(output_dir))
+    if s3_cfg:
+        table.add_row("S3 bucket", s3_cfg.bucket)
+        table.add_row("S3 prefix", s3_cfg.prefix)
+    console.print(Panel(table, title="LeRobot Fine-tuning Job", expand=False))
 
 
-def main() -> None:
-    args = _parse_args()
+@app.command()
+def main(
+    policy: Policy = typer.Option(Policy.ACT, "--policy", help="Policy architecture."),
+    dataset: str = typer.Option(
+        "lerobot/pusht", "--dataset", help="HuggingFace dataset repo_id."
+    ),
+    env: str | None = typer.Option(
+        None, "--env", help="Environment for in-training evaluation (optional)."
+    ),
+    steps: int = typer.Option(5000, "--steps", help="Number of offline training steps.", min=1),
+    batch_size: int = typer.Option(
+        8, "--batch-size", help="Training batch size per GPU.", min=1
+    ),
+    eval_episodes: int = typer.Option(
+        0,
+        "--eval-episodes",
+        help="Episodes evaluated at each checkpoint (requires --env).",
+        min=0,
+    ),
+    output_dir: Path | None = typer.Option(
+        None,
+        "--output-dir",
+        help="Local checkpoint output directory. Auto-generated with timestamp if omitted.",
+    ),
+) -> None:
+    try:
+        cfg = TrainConfig(
+            policy=policy,
+            dataset=dataset,
+            env=env,
+            steps=steps,
+            batch_size=batch_size,
+            eval_episodes=eval_episodes,
+            output_dir=output_dir,
+        )
+    except ValidationError as exc:
+        console.print(f"[red]Invalid input:[/red] {exc}")
+        raise typer.Exit(code=1) from exc
 
-    # Forward HuggingFace token so datasets/models can be fetched from the Hub.
     hf_token = os.environ.get("HF_TOKEN")
     if hf_token:
         os.environ["HUGGING_FACE_HUB_TOKEN"] = hf_token
 
     run_id = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S")
-    dataset_slug = args.dataset.split("/")[-1]
-    run_name = f"lerobot-{args.policy}-{dataset_slug}-{run_id}"
-    output_dir = Path(args.output_dir or f"outputs/train/{run_name}")
-    # Do NOT pre-create the directory: lerobot-train creates it itself and raises
-    # FileExistsError if it already exists (resume=False). Let lerobot own creation.
+    target_dir = (
+        cfg.output_dir
+        if cfg.output_dir
+        else Path("outputs")
+        / "train"
+        / f"lerobot-{cfg.policy.value}-{cfg.dataset_slug}-{run_id}"
+    )
+    target_dir.parent.mkdir(parents=True, exist_ok=True)
 
-    cmd = _build_train_cmd(args, output_dir)
+    s3_cfg = S3Config.from_env()
+    _print_summary(cfg, target_dir, s3_cfg)
 
-    print("=" * 60)
-    print("LeRobot Fine-tuning Job")
-    print(f"  Policy:   {args.policy}")
-    print(f"  Dataset:  {args.dataset}")
-    print(f"  Steps:    {args.steps}")
-    print(f"  Output:   {output_dir}")
-    print("=" * 60)
-    print(f"\nRunning: {' '.join(cmd)}\n")
-
-    result = subprocess.run(cmd, check=False)
-
+    cmd = _build_train_cmd(cfg, target_dir)
+    result = subprocess.run(cmd, text=True)
     if result.returncode != 0:
-        print(
-            f"\nTraining exited with code {result.returncode}. Attempting checkpoint upload anyway.",
-            file=sys.stderr,
-        )
+        console.print(f"[red]Training failed (exit {result.returncode}).[/red]")
+        raise typer.Exit(code=result.returncode)
 
-    _upload_checkpoint(output_dir)
-    sys.exit(result.returncode)
+    if _upload_checkpoint(target_dir, s3_cfg):
+        console.print("[green]S3 upload complete.[/green]")
+    else:
+        console.print("[yellow]S3 upload skipped.[/yellow]")
 
 
 if __name__ == "__main__":
-    main()
+    app()

@@ -80,6 +80,17 @@ Install the [Nebius AI Cloud CLI](https://docs.nebius.com/cli/install) and [conf
 | HuggingFace account (optional) | Required only for private datasets — `lerobot/pusht` is public |
 | Subnet ID (sometimes) | Only if your project has **multiple subnets** |
 
+### Local dev loop (optional)
+
+```bash
+cd robotics/lerobot-finetune-job
+uv sync --group dev # creates .venv and installs deps (runtime + dev)
+source .venv/bin/activate
+pre-commit install # optional: ruff lint/format on commit
+ruff check .
+python -m train.run --help
+```
+
 ---
 
 ## Step 1 — Try it locally first (optional but recommended)
