@@ -16,12 +16,13 @@
 # Optional environment variables:
 #   HF_TOKEN            HuggingFace token (for private datasets)
 #   REGISTRY            Docker Hub user or org (default: mnrozhkov)
-#   IMAGE_TAG           Image tag / version (default: v0.01)
+#   IMAGE_TAG           Image tag / version (default: v0.1.0)
 #   IMAGE               Full image ref; overrides REGISTRY + IMAGE_TAG if set
 #   SUBNET_ID           Nebius subnet ID (only needed when the project has multiple subnets)
 #   JOB_PLATFORM        GPU platform  (default: gpu-h100-sxm)
-#   JOB_PRESET          Resource preset  (default: 1gpu-20vcpu-160gb)
-#   JOB_TIMEOUT         Job timeout  (default: 6h)
+#   JOB_PRESET          Resource preset  (default: 1gpu-16vcpu-200gb)
+#   JOB_DISK            Disk size      (default: 450Gi)
+#   JOB_TIMEOUT         Job timeout    (default: 6h)
 #
 # Options:
 #   --debug   Warn on missing S3 env vars instead of exiting (results will be lost).
@@ -56,13 +57,14 @@ DATASET_SLUG="${DATASET//\//-}"
 
 # --- Image (override REGISTRY / IMAGE_TAG, or set IMAGE to the full ref) ---
 REGISTRY="${REGISTRY:-mnrozhkov}"
-IMAGE_TAG="${IMAGE_TAG:-v0.01}"
+IMAGE_TAG="${IMAGE_TAG:-v0.1.0}"
 IMAGE="${IMAGE:-${REGISTRY}/lerobot-finetune:${IMAGE_TAG}}"
 
 # --- Job configuration ---
 JOB_PLATFORM="${JOB_PLATFORM:-gpu-h100-sxm}"
-JOB_PRESET="${JOB_PRESET:-1gpu-20vcpu-160gb}"
+JOB_PRESET="${JOB_PRESET:-1gpu-16vcpu-200gb}"
 JOB_TIMEOUT="${JOB_TIMEOUT:-6h}"
+JOB_DISK="${JOB_DISK:-450Gi}"
 SUBNET_ID="${SUBNET_ID:-}"
 
 echo "LeRobot fine-tuning job"
@@ -127,7 +129,7 @@ CREATE_CMD=(
     --platform "$JOB_PLATFORM"
     --preset "$JOB_PRESET"
     --timeout "$JOB_TIMEOUT"
-    --disk-size 200Gi
+    --disk-size "$JOB_DISK"
     --args "$ARGS"
     --format "jsonpath={.metadata.id}"
 )
@@ -143,6 +145,11 @@ done
 # HuggingFace token (optional — lerobot/pusht is public)
 if [ -n "${HF_TOKEN:-}" ]; then
     CREATE_CMD+=(--env "HF_TOKEN=$HF_TOKEN")
+fi
+
+# WANDB (optional)
+if [ -n "${WANDB_API_KEY:-}" ]; then
+    CREATE_CMD+=(--env "WANDB_API_KEY=$WANDB_API_KEY")
 fi
 
 # Multiple-subnet projects require an explicit subnet ID

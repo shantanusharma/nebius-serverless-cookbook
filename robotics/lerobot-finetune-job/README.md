@@ -12,6 +12,15 @@ difficulty: intermediate
 
 Fine-tune a [LeRobot](https://github.com/huggingface/lerobot) ACT or Diffusion policy on a robotics dataset — no physical robot or local GPU required. The job provisions a GPU, downloads the dataset from HuggingFace Hub, trains the policy, saves the checkpoint to S3, and terminates.
 
+## Why LeRobot policies + serverless?
+
+- What it is: LeRobot ships reference visuomotor policies (ACT, Diffusion) and training pipelines for imitation learning on robotics datasets.
+- Problems they solve: learn robust manipulation behaviors from demonstrations without hand-tuned controllers. ACT is fast/lightweight for fine-grained tasks; Diffusion handles multimodal, higher-dimensional action spaces.
+- Why serverless here: offload heavy GPU training to Nebius AI Jobs with reproducible images and S3 persistence—no cluster management, pay-per-use, easy to rerun with new datasets/policies.
+
+
+> Default workflow: manual commands shown below. The helper scripts in `scripts/` are optional shortcuts if you prefer automation.
+
 | Section | What you get | Typical time |
 | --- | --- | --- |
 | [Quick start](#-30-second-quick-start) | One `job create` on GPU (no S3 persistence) | ~2 min |
@@ -30,12 +39,21 @@ Fine-tune a [LeRobot](https://github.com/huggingface/lerobot) ACT or Diffusion p
 ```bash
 nebius ai job create \
   --name "lerobot-act-pusht" \
-  --image "mnrozhkov/lerobot-finetune:v0.0.1" \
+  --image "mnrozhkov/lerobot-finetune:v0.1.0" \
   --platform "gpu-h100-sxm" \
   --preset "1gpu-16vcpu-200gb" \
+  --disk-size 450Gi \
   --timeout "6h" \
   --args "--policy act --dataset lerobot/pusht --steps 5000"
 ```
+
+What this does:
+- `--name`: job identifier in Nebius AI Jobs
+- `--image`: training container (published example image)
+- `--platform` / `--preset`: GPU + CPU/mem shape
+- `--disk-size`: ephemeral disk for data + checkpoints
+- `--timeout`: wall-clock limit (job is stopped after this)
+- `--args`: passed to `python -m train.run` inside the container
 
 This trains without persisting the checkpoint (the VM is removed on completion). For **saving the checkpoint to your bucket**, add the `--env` lines from [Step 3](#step-3--launch-a-gpu-training-job).
 
@@ -45,19 +63,31 @@ This trains without persisting the checkpoint (the VM is removed on completion).
 
 ## What this example does
 
+```mermaid
+flowchart LR
+    Config["Config & creds<br/>policy, dataset, steps,<br/>HF_TOKEN, WANDB_API_KEY,<br/>S3_*"] --> Submit["nebius ai job create<br/>(image: lerobot-finetune)"]
+    Submit --> Job["Nebius AI Job<br/>GPU: H100 / L40S"]
+    Dataset[("HuggingFace Hub<br/>lerobot/pusht etc.")] --> Job
+    Job --> Train["lerobot-train<br/>act | diffusion"]
+    Train --> Ckpt["Checkpoint<br/>outputs/train/<run-id>/"]
+    Ckpt --> S3[("Nebius Object Storage<br/>s3://$S3_BUCKET/$S3_PREFIX/")]
+    Train -. WANDB_API_KEY .-> WB[("Weights & Biases<br/>training metrics")]
 ```
-Inside the container (LeRobot + PyTorch)
-─────────────────────────────────────────
-Download dataset from HuggingFace Hub (lerobot/pusht)
-        ↓
-Build ACT policy from scratch
-        ↓
-Offline training loop: N gradient steps on GPU
-        ↓
-Save HF-compatible checkpoint → outputs/train/<run-id>/
-        ↓
-Upload checkpoint to S3 bucket
-```
+
+---
+
+## Available policies and datasets
+
+- Policies: `act` (default, fast/efficient), `diffusion` (slower per step, handles multimodal/high-D actions).
+- Datasets:
+  - `lerobot/pusht` — public, small, good first run.
+  - `lerobot/aloha_sim_transfer_cube_human` — gated; requires `HF_TOKEN`.
+- Tips:
+  - `--batch-size` default 8; drop to 2 on small/local runs.
+  - `NUM_WORKERS=0` (env) for low-RAM Docker runs.
+  - Set `HF_TOKEN` for gated datasets; set `WANDB_API_KEY` to enable W&B.
+
+See [Adapting to your own use case](#adapting-to-your-own-use-case) for concise manual command examples (local Docker and serverless).
 
 **Use this example to:**
 - Learn the Nebius AI Jobs submission pattern for ML training workloads
@@ -80,54 +110,28 @@ Install the [Nebius AI Cloud CLI](https://docs.nebius.com/cli/install) and [conf
 | HuggingFace account (optional) | Required only for private datasets — `lerobot/pusht` is public |
 | Subnet ID (sometimes) | Only if your project has **multiple subnets** |
 
-### Local dev loop (optional)
-
-```bash
-cd robotics/lerobot-finetune-job
-uv sync --group dev # creates .venv and installs deps (runtime + dev)
-source .venv/bin/activate
-pre-commit install # optional: ruff lint/format on commit
-ruff check .
-python -m train.run --help
-```
-
----
-
 ## Step 1 — Try it locally first (optional but recommended)
 
 Validate the container on your laptop before spending cloud credits.
 
-`scripts/run_docker.sh` mounts **`train/`**, **`configs/`**, and **`lerobot-outputs/`** from this folder into the container. You can edit `train/run.py` on the host and re-run **without** rebuilding (`SKIP_BUILD=1`).
+Manual commands are shown below. If you prefer a shortcut, `scripts/run_docker.sh` mounts **`train/`**, **`configs/`**, and **`lerobot-outputs/`** from this folder into the container. You can edit `train/run.py` on the host and re-run **without** rebuilding (default skips build; use `--rebuild` for a fresh image).
 
 **Build and run:**
 
 ```bash
-bash scripts/run_docker.sh
-```
-
-After the first successful build, iterate faster:
-
-```bash
-SKIP_BUILD=1 bash scripts/run_docker.sh
-```
-
-To open a shell in the same environment (optional), use the same image and volume flags as `run_docker.sh`, then run `python -m train.run …` or `lerobot-train --help` by hand.
-
-Checkpoints from local runs appear under **`./lerobot-outputs/`** on the host (no S3 needed).
-
-Or manually (same mounts as the script):
-
-```bash
-docker build --platform linux/amd64 -t lerobot-finetune:dev .
-
 mkdir -p lerobot-outputs
 docker run --rm --platform linux/amd64 \
+  --shm-size 2g \
   -v "$(pwd)/train:/lerobot/train" \
   -v "$(pwd)/configs:/lerobot/configs" \
   -v "$(pwd)/lerobot-outputs:/lerobot/outputs" \
-  lerobot-finetune:dev \
-  --policy act --dataset lerobot/pusht --steps 50
+  mnrozhkov/lerobot-finetune:v0.1.0 \
+  --policy act --dataset lerobot/pusht --steps 20
 ```
+
+To open a shell in the same environment (optional), reuse the same image and mounts, then run `python -m train.run …` or `lerobot-train --help` by hand.
+
+Prefer an automated shortcut? Use `scripts/run_docker.sh` (defaults to skip rebuild; pass `--rebuild` to rebuild).
 
 **Expected output:**
 
@@ -136,7 +140,7 @@ docker run --rm --platform linux/amd64 \
 LeRobot Fine-tuning Job
   Policy:   act
   Dataset:  lerobot/pusht
-  Steps:    50
+  Steps:    20
 ============================================================
 
 Running: .../lerobot-train --policy.type=act --policy.push_to_hub=false ...
@@ -195,7 +199,7 @@ If the bucket is empty, the command prints nothing (exit 0).
 ```bash
 nebius ai job create \
   --name "lerobot-act-pusht-5k" \
-  --image "mnrozhkov/lerobot-finetune:v0.0.1" \
+  --image "mnrozhkov/lerobot-finetune:v0.1.0" \
   --platform "gpu-h100-sxm" \
   --preset "1gpu-16vcpu-200gb" \
   --timeout "6h" \
@@ -206,6 +210,7 @@ nebius ai job create \
   --env "S3_BUCKET=$S3_BUCKET" \
   --env "S3_PREFIX=$S3_PREFIX" \
   --env "S3_ENDPOINT_URL=$S3_ENDPOINT_URL" \
+  ${WANDB_API_KEY:+--env "WANDB_API_KEY=$WANDB_API_KEY"} \
   --args "--policy act --dataset lerobot/pusht --steps 5000"
 ```
 
@@ -260,14 +265,17 @@ aws s3 ls "s3://$S3_BUCKET/$S3_PREFIX/"
 Download a checkpoint:
 
 ```bash
-export RUN_ID="lerobot-act-pusht-20240501T120000"
+# Replace with your actual run folder name from S3
+export RUN_ID="lerobot-act-pusht-<timestamp>"
 
 aws s3 sync \
   "s3://$S3_BUCKET/$S3_PREFIX/$RUN_ID/" \
-  "./$RUN_ID/"
+  "./lerobot-outputs/$RUN_ID/"
 ```
 
 Add `--endpoint-url "$S3_ENDPOINT_URL"` only if your AWS CLI is not configured for Nebius Object Storage.
+
+> Local runs via Docker already write checkpoints to `./lerobot-outputs/` (no S3 involved). For those, skip the sync and point eval to the folder under `lerobot-outputs/`.
 
 **What you will find:**
 
@@ -279,7 +287,7 @@ lerobot-act-pusht-20240501T120000/
 └── train_config.json        ← full training run config for reproducibility
 ```
 
-**Load and evaluate the checkpoint:**
+**Load and evaluate the checkpoint (local or S3-synced):**
 
 ```python
 from lerobot.policies.act.modeling_act import ACTPolicy
@@ -288,11 +296,18 @@ policy = ACTPolicy.from_pretrained("./lerobot-act-pusht-20240501T120000/")
 policy.eval()
 ```
 
-Or push directly to the HuggingFace Hub:
+Or use the bundled eval helper (same image; override entrypoint and mount the checkpoint + train code):
 
-```python
-policy.push_to_hub("your-username/act-pusht-nebius")
+```bash
+docker run --rm --platform linux/amd64 \
+  --entrypoint python \
+  -v "$(pwd)/train:/lerobot/train" \
+  -v "$(pwd)/lerobot-outputs/$RUN_ID/checkpoints/005000/pretrained_model:/lerobot/ckpt" \
+  mnrozhkov/lerobot-finetune:v0.1.0 \
+  -m train.eval /lerobot/ckpt
 ```
+
+The checkpoint directory must include `config.json` and `model.safetensors` (sync the whole run folder from S3 or use the local `lerobot-outputs/$RUN_ID` from a Docker run).
 
 ---
 
@@ -300,110 +315,73 @@ policy.push_to_hub("your-username/act-pusht-nebius")
 
 ```
 .
-├── Dockerfile          CUDA runtime + uv + LeRobot + boto3
-├── train/              Entrypoint package
-│   └── run.py          Arg parsing → lerobot-train → optional S3 upload
+├── Dockerfile              CUDA runtime + uv + LeRobot + boto3
+├── pyproject.toml          Runtime + dev deps (uv/ruff/typer/pydantic/rich/boto3)
+├── uv.lock                 Resolved dependencies (if present)
+├── train/                  Entrypoint package
+│   ├── run.py              Typer CLI → lerobot-train → optional S3 upload
+│   └── eval.py             Simple ACT checkpoint loader for quick verification
 ├── configs/
-│   └── act_pusht.yaml  Reference training configuration (documented parameters)
-├── lerobot-outputs/    Created locally; checkpoints when using mounted runs
-└── scripts/
-    ├── run_docker.sh      Build (optional) + run with host mounts for train/configs
-    └── run_serverless.sh  Validate env vars and submit Nebius AI Job
+│   └── act_pusht.yaml      Reference training configuration (documented parameters)
+├── lerobot-outputs/        Local checkpoints when using mounted runs
+├── scripts/
+│   ├── run_docker.sh           Optional local runner (default skips rebuild; add --rebuild)
+│   ├── run_serverless.sh       Validate env and submit Nebius AI Job
+│   └── test_policy_dataset.sh  Hardcoded local smoke set (Docker)
+├── .pre-commit-config.yaml    Ruff hooks
 ```
 
 ---
 
 ## Adapting to your own use case
 
-<details>
-<summary>Train Diffusion Policy instead of ACT</summary>
+- Switch policy: `--policy diffusion` (use more steps, e.g., 20k+; consider larger disk if datasets are big).
+- Switch dataset: replace `--dataset` with any compatible LeRobot dataset; for gated sets add `HF_TOKEN` (serverless: `--env HF_TOKEN=...`, Docker: `--env HF_TOKEN=...`); omit `HF_TOKEN` for public datasets like `lerobot/pusht`.
+- Tune resources: adjust `--batch-size`, and for local Docker pass `NUM_WORKERS=0` env on low-RAM hosts.
+- W&B logging: set `WANDB_API_KEY` env (already picked up by `train/run.py`).
+- Build/push your own image: set `REGISTRY` / `IMAGE_TAG`, then `docker build --platform linux/amd64 -t "$REGISTRY/lerobot-finetune:$IMAGE_TAG" .` and push; use that tag in `--image` or `IMAGE` env.
+
+**Serverless (ACT / pusht, with W&B)**  
+Runs ACT on the public pusht dataset; uses cost-optimized L4 GPU and preemptible to save cost.
 
 ```bash
-nebius ai job create ... \
-  --args "--policy diffusion --dataset lerobot/pusht --steps 5000"
+nebius ai job create \
+  --name "lerobot-act-pusht-5k" \
+  --image "mnrozhkov/lerobot-finetune:v0.1.0" \
+  --platform "gpu-l4" \             # L4 GPU (cost-optimized)
+  --preset "1gpu-8vcpu-32gb" \      # matching preset
+  --timeout "6h" \                  # wall-clock timeout
+  --disk-size 450Gi \               # data + checkpoints
+  --preemptible \                   # cheaper, may restart
+  --env "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" \
+  --env "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" \
+  --env "AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION" \
+  --env "S3_BUCKET=$S3_BUCKET" --env "S3_PREFIX=$S3_PREFIX" \
+  --env "S3_ENDPOINT_URL=$S3_ENDPOINT_URL" \
+  ${WANDB_API_KEY:+--env "WANDB_API_KEY=$WANDB_API_KEY"} \
+  ${HF_TOKEN:+--env "HF_TOKEN=$HF_TOKEN"} \
+  --args "--policy act --dataset lerobot/pusht --steps 5000"
 ```
 
-Diffusion Policy typically needs more steps than ACT to reach comparable performance and is slower to train per step. Consider 50 000+ steps for meaningful results.
-
-</details>
-
-<details>
-<summary>Use a different dataset (e.g. ALOHA simulation)</summary>
+**Serverless (Diffusion / gated ALOHA sim)**  
+Runs Diffusion policy on a gated ALOHA simulation dataset; requires HF_TOKEN; uses H100-class resources and more steps.
 
 ```bash
-nebius ai job create ... \
-  --args "--policy act --dataset lerobot/aloha_sim_insertion_scripted --steps 10000"
+nebius ai job create \
+  --name "lerobot-diffusion-aloha-sim-20k" \
+  --image "mnrozhkov/lerobot-finetune:v0.1.0" \
+  --platform "gpu-h100-sxm" \
+  --preset "1gpu-16vcpu-200gb" \
+  --timeout "6h" --disk-size 450Gi \
+  --env "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" \
+  --env "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" \
+  --env "AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION" \
+  --env "S3_BUCKET=$S3_BUCKET" --env "S3_PREFIX=$S3_PREFIX" \
+  --env "S3_ENDPOINT_URL=$S3_ENDPOINT_URL" \
+  --env "HF_TOKEN=$HF_TOKEN" \
+  ${WANDB_API_KEY:+--env "WANDB_API_KEY=$WANDB_API_KEY"} \
+  --args "--policy diffusion --dataset lerobot/aloha_sim_transfer_cube_human --steps 20000 --batch-size 2"
 ```
-
-ALOHA datasets are larger — allocate more disk (`--disk-size 300Gi`) and more steps.
-
-</details>
-
-<details>
-<summary>Fine-tune from an existing checkpoint</summary>
-
-Upload a pretrained checkpoint to S3 (or use a HuggingFace Hub repo), then pass it via `--config-path`:
-
-```bash
-nebius ai job create ... \
-  --args "--policy act --dataset lerobot/pusht --steps 2000 \
-          --config-path lerobot/act_pusht"
-```
-
-`--config-path` accepts a local directory or a HuggingFace repo ID containing a `train_config.json`.
-
-</details>
-
-<details>
-<summary>Enable evaluation during training</summary>
-
-Add `--env pusht` and `--eval-episodes 10` to run environment rollouts every `save_freq` steps:
-
-```bash
-nebius ai job create ... \
-  --args "--policy act --dataset lerobot/pusht --steps 5000 \
-          --env pusht --eval-episodes 10"
-```
-
-Evaluation renders the gym environment. The container does not have a display server — add `apt-get install xvfb` to the Dockerfile and prepend the training command with `xvfb-run -a` if you encounter rendering errors.
-
-</details>
-
-<details>
-<summary>Build and push to Docker Hub</summary>
-
-Image repository name for this example is **`lerobot-finetune`**. Set **`REGISTRY`** (Docker Hub user or org) and **`IMAGE_TAG`**; the full name is `"${REGISTRY}/lerobot-finetune:${IMAGE_TAG}"`.
-
-Example values (maintainer): **`REGISTRY=mnrozhkov`**, **`IMAGE_TAG=v0.0.1`**.
-
-```bash
-docker login   # once per machine — Docker Hub credentials
-
-export REGISTRY="mnrozhkov"
-export IMAGE_TAG="v0.0.1"
-export IMAGE="${REGISTRY}/lerobot-finetune:${IMAGE_TAG}"
-
-docker build --platform linux/amd64 -t "$IMAGE" .
-docker push "$IMAGE"
-```
-
-
-Use `"$IMAGE"` with `nebius ai job create --image "$IMAGE"`, or export `REGISTRY` / `IMAGE_TAG` / `IMAGE` before `scripts/run_serverless.sh`.
-
-</details>
-
-<details>
-<summary>Log to Weights & Biases</summary>
-
-```bash
-nebius ai job create ... \
-  --env "WANDB_API_KEY=$WANDB_API_KEY" \
-  --args "--policy act --dataset lerobot/pusht --steps 5000 --wandb-enable true"
-```
-
-Expose `--wandb-enable` in `train/run.py` and pass `--wandb.enable=true` to the LeRobot subprocess, or set it in `configs/act_pusht.yaml`.
-
-</details>
 
 ---
 
@@ -413,10 +391,42 @@ Expose `--wandb-enable` in `train/run.py` and pass `--wandb.enable=true` to the 
 | --- | --- |
 | `Using device: cpu` in cloud logs | Check `--platform gpu-h100-sxm` and `--preset 1gpu-16vcpu-200gb` are set |
 | `ModuleNotFoundError: lerobot` | Image not built correctly — rebuild with `docker build --no-cache` |
-| `policy.repo_id` missing / push to hub | v0.5.1 may default `push_to_hub=True`; `train/run.py` passes `--policy.push_to_hub=false`. To push, set `--policy.push_to_hub=true` and supply `--policy.repo_id=your-org/your-model` |
-| `FileExistsError` on `output_dir` | Remove the directory, use a new `--output-dir`, or omit it so a timestamped path is used |
-| Dataset download fails / hangs | Nebius jobs have limited external network access by default; check the [Nebius docs](https://docs.nebius.com/serverless) for egress settings |
 | Job completes but no S3 results | Check all `AWS_*` and `S3_*` env vars are set and the bucket exists |
-| Unrecognised `--training.*` flags | In v0.5.1 use top-level `--steps` and `--batch_size` (see `lerobot-train --help`) |
 | `multiple subnets found` on submission | Export `SUBNET_ID`, then add `--subnet-id "$SUBNET_ID"` to `job create` |
 | OOM on L40S | Reduce `--batch-size` to 4 or switch to `--platform gpu-h100-sxm` |
+
+## References
+
+- LeRobot project
+  - Repo: https://github.com/huggingface/lerobot
+  - Docs: https://huggingface.co/docs/lerobot
+- Policies
+  - ACT overview: https://huggingface.co/docs/lerobot/act
+  - ACT paper (Zhao et al.): https://arxiv.org/abs/2304.13705
+  - Diffusion Policy checkpoint (`lerobot/diffusion_pusht`): https://huggingface.co/lerobot/diffusion_pusht
+  - Diffusion Policy walkthrough: https://radekosmulski.com/diving-into-diffusion-policy-with-lerobot/
+  - Diffusion Policy paper (Chi et al.): https://arxiv.org/abs/2303.04137
+- Datasets
+  - `lerobot/pusht`: https://huggingface.co/datasets/lerobot/pusht
+  - `lerobot/aloha_sim_transfer_cube_human`: https://huggingface.co/datasets/lerobot/aloha_sim_transfer_cube_human
+  - LeRobot datasets index: https://huggingface.co/datasets?other=LeRobot
+- Nebius
+  - AI Jobs: https://docs.nebius.com/serverless
+  - CLI install / configure: https://docs.nebius.com/cli/install , https://docs.nebius.com/cli/configure
+  - Object Storage quickstart: https://docs.nebius.com/object-storage/quickstart
+
+---
+
+## Development and debug guide
+
+```bash
+cd robotics/lerobot-finetune-job
+uv sync --group dev # creates .venv and installs deps (runtime + dev)
+source .venv/bin/activate
+pre-commit install # optional: ruff lint/format on commit
+ruff check .
+python -m train.run --help
+
+# Build image locally (dev tag)
+docker build --platform linux/amd64 -t lerobot-finetune:dev .
+```
