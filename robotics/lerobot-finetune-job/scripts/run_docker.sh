@@ -13,9 +13,10 @@
 #   ./scripts/run_docker.sh diffusion lerobot/pusht 100
 #
 # Environment variables:
-#   IMAGE       Override the image tag (default: lerobot-finetune:dev)
-#   HF_TOKEN    HuggingFace token (for private datasets)
-#   SKIP_BUILD  If set to 1, skip `docker build` (use after first successful build)
+#   IMAGE          Override the image tag (default: lerobot-finetune:dev)
+#   HF_TOKEN       HuggingFace token (for private datasets)
+#   WANDB_API_KEY  If set, passed into the container; train/run.py enables W&B
+#   SKIP_BUILD     If set to 1, skip `docker build` (use after first successful build)
 
 set -e
 
@@ -26,6 +27,7 @@ IMAGE="${IMAGE:-lerobot-finetune:dev}"
 POLICY="${1:-act}"
 DATASET="${2:-lerobot/pusht}"
 STEPS="${3:-50}"
+BATCH_SIZE="${BATCH_SIZE:-}"
 
 mkdir -p "${REPO_ROOT}/lerobot-outputs"
 
@@ -43,6 +45,9 @@ echo "  Dataset: $DATASET"
 echo "  Steps:   $STEPS"
 echo "  Host mounts: train/ configs/ -> container (edit run.py without rebuild)"
 echo "  Outputs:     ${REPO_ROOT}/lerobot-outputs/"
+if [ -n "${WANDB_API_KEY:-}" ]; then
+  echo "  W&B:         WANDB_API_KEY will be passed (logging enabled in train/run.py)"
+fi
 echo ""
 echo "Note: 'Using device: cpu' is expected on a macOS or GPU-less host."
 echo "      GPU will be used automatically in the serverless job."
@@ -50,11 +55,14 @@ echo ""
 
 docker run --rm \
   --platform linux/amd64 \
+  --shm-size 2g \
   -v "${REPO_ROOT}/train:/lerobot/train" \
   -v "${REPO_ROOT}/configs:/lerobot/configs" \
   -v "${REPO_ROOT}/lerobot-outputs:/lerobot/outputs" \
   ${HF_TOKEN:+--env "HF_TOKEN=$HF_TOKEN"} \
+  ${WANDB_API_KEY:+--env "WANDB_API_KEY=$WANDB_API_KEY"} \
   "$IMAGE" \
   --policy "$POLICY" \
   --dataset "$DATASET" \
-  --steps "$STEPS"
+  --steps "$STEPS" \
+  ${BATCH_SIZE:+--batch-size "$BATCH_SIZE"}

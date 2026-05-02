@@ -15,7 +15,9 @@
 #
 # Optional environment variables:
 #   HF_TOKEN            HuggingFace token (for private datasets)
-#   IMAGE               Docker image to use (default: value below in DEFAULT_IMAGE)
+#   REGISTRY            Docker Hub user or org (default: mnrozhkov)
+#   IMAGE_TAG           Image tag / version (default: v0.01)
+#   IMAGE               Full image ref; overrides REGISTRY + IMAGE_TAG if set
 #   SUBNET_ID           Nebius subnet ID (only needed when the project has multiple subnets)
 #   JOB_PLATFORM        GPU platform  (default: gpu-h100-sxm)
 #   JOB_PRESET          Resource preset  (default: 1gpu-20vcpu-160gb)
@@ -52,9 +54,10 @@ STEPS="${POSITIONAL_ARGS[2]:-5000}"
 # Replace / with - for use in job name
 DATASET_SLUG="${DATASET//\//-}"
 
-# --- Image ---
-DEFAULT_IMAGE="your-registry/lerobot-finetune:latest"
-IMAGE="${IMAGE:-$DEFAULT_IMAGE}"
+# --- Image (override REGISTRY / IMAGE_TAG, or set IMAGE to the full ref) ---
+REGISTRY="${REGISTRY:-mnrozhkov}"
+IMAGE_TAG="${IMAGE_TAG:-v0.01}"
+IMAGE="${IMAGE:-${REGISTRY}/lerobot-finetune:${IMAGE_TAG}}"
 
 # --- Job configuration ---
 JOB_PLATFORM="${JOB_PLATFORM:-gpu-h100-sxm}"

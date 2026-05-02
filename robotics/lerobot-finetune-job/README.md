@@ -30,9 +30,9 @@ Fine-tune a [LeRobot](https://github.com/huggingface/lerobot) ACT or Diffusion p
 ```bash
 nebius ai job create \
   --name "lerobot-act-pusht" \
-  --image "your-registry/lerobot-finetune:latest" \
+  --image "mnrozhkov/lerobot-finetune:v0.0.1" \
   --platform "gpu-h100-sxm" \
-  --preset "1gpu-20vcpu-160gb" \
+  --preset "1gpu-16vcpu-200gb" \
   --timeout "6h" \
   --args "--policy act --dataset lerobot/pusht --steps 5000"
 ```
@@ -142,39 +142,40 @@ S3 upload skipped — missing env vars: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
 
 ## Step 2 — Set up object storage
 
-Results are written to S3-compatible storage. One-time setup.
+Results are written to S3-compatible storage. Pick one of two setups:
 
-**Create a bucket and credentials:**
-
-Follow the [Nebius Object Storage quickstart](https://docs.nebius.com/object-storage/quickstart#configure-access-credentials-and-aws-cli-settings) to get:
-- A bucket name (e.g. `lerobot-checkpoints`)
-- `NB_ACCESS_KEY_AWS_ID` and `NB_SECRET_ACCESS_KEY`
-
-**Export these in your shell:**
+**A) Use the toolkit (recommended)**
 
 ```bash
-export AWS_ACCESS_KEY_ID="$NB_ACCESS_KEY_AWS_ID"
-export AWS_SECRET_ACCESS_KEY="$NB_SECRET_ACCESS_KEY"
+COOKBOOK_ENV_FILE=.env.lerobot bash ../../scripts/bootstrap-env.sh                   # fills PROJECT_ID/SUBNET_ID
+COOKBOOK_ENV_FILE=.env.lerobot bash ../../scripts/bootstrap-storage.sh lerobot lerobot-finetune-policy  # bucket prefix + object prefix
+COOKBOOK_ENV_FILE=.env.lerobot source ../../scripts/activate.sh                      # load that .env into your shell
+```
+
+- Pass a name prefix (here `lerobot`) to get a unique bucket like `lerobot-<rand>`.
+- Pass an object prefix (here `lerobot-finetune-policy`) to keep artifacts under that path.
+- `.env` ends up with `S3_BUCKET`, `S3_PREFIX`, `S3_ENDPOINT_URL`, `AWS_ACCESS_KEY_ID/SECRET_ACCESS_KEY`, and will reuse the same bucket on reruns.
+
+**B) Manual setup**
+
+Follow the [Nebius Object Storage quickstart](https://docs.nebius.com/object-storage/quickstart#configure-access-credentials-and-aws-cli-settings) to create a bucket and access keys, then export:
+
+```bash
+export AWS_ACCESS_KEY_ID="..."
+export AWS_SECRET_ACCESS_KEY="..."
 export AWS_DEFAULT_REGION="eu-north1"
 export S3_ENDPOINT_URL="https://storage.eu-north1.nebius.cloud"
-export S3_BUCKET="lerobot-checkpoints"
-export S3_PREFIX="lerobot"
+export S3_BUCKET="lerobot-<your-suffix>"
+export S3_PREFIX="lerobot-finetune-policy"
 ```
 
 **Verify access:**
 
 ```bash
-aws s3 ls "s3://$S3_BUCKET"
+aws s3 ls "s3://$S3_BUCKET" --endpoint-url "$S3_ENDPOINT_URL"
 ```
 
-If you get a `scheme is missing` error, pass the endpoint explicitly:
-
-```bash
-aws s3 ls "s3://$S3_BUCKET" \
-  --endpoint-url "${S3_ENDPOINT_URL:-https://storage.eu-north1.nebius.cloud}"
-```
-
-Success: the command prints bucket contents (or exits silently if the bucket is empty).
+If the bucket is empty, the command prints nothing (exit 0). 
 
 ---
 
@@ -183,11 +184,11 @@ Success: the command prints bucket contents (or exits silently if the bucket is 
 ```bash
 nebius ai job create \
   --name "lerobot-act-pusht-5k" \
-  --image "your-registry/lerobot-finetune:latest" \
+  --image "mnrozhkov/lerobot-finetune:v0.0.1" \
   --platform "gpu-h100-sxm" \
-  --preset "1gpu-20vcpu-160gb" \
+  --preset "1gpu-16vcpu-200gb" \
   --timeout "6h" \
-  --disk-size 200Gi \
+  --disk-size 450Gi \
   --env "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" \
   --env "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" \
   --env "AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION" \
@@ -358,17 +359,25 @@ Evaluation renders the gym environment. The container does not have a display se
 </details>
 
 <details>
-<summary>Build and push your own image</summary>
+<summary>Build and push to Docker Hub</summary>
+
+Image repository name for this example is **`lerobot-finetune`**. Set **`REGISTRY`** (Docker Hub user or org) and **`IMAGE_TAG`**; the full name is `"${REGISTRY}/lerobot-finetune:${IMAGE_TAG}"`.
+
+Example values (maintainer): **`REGISTRY=mnrozhkov`**, **`IMAGE_TAG=v0.0.1`**.
 
 ```bash
-export REGISTRY="your-dockerhub-user"
-export IMAGE_TAG="v1.0.0"
+docker login   # once per machine — Docker Hub credentials
 
-docker build --platform linux/amd64 -t "${REGISTRY}/lerobot-finetune:${IMAGE_TAG}" .
-docker push "${REGISTRY}/lerobot-finetune:${IMAGE_TAG}"
+export REGISTRY="mnrozhkov"
+export IMAGE_TAG="v0.0.1"
+export IMAGE="${REGISTRY}/lerobot-finetune:${IMAGE_TAG}"
+
+docker build --platform linux/amd64 -t "$IMAGE" .
+docker push "$IMAGE"
 ```
 
-Then use `--image "${REGISTRY}/lerobot-finetune:${IMAGE_TAG}"` in `job create`.
+
+Use `"$IMAGE"` with `nebius ai job create --image "$IMAGE"`, or export `REGISTRY` / `IMAGE_TAG` / `IMAGE` before `scripts/run_serverless.sh`.
 
 </details>
 
@@ -391,7 +400,7 @@ Expose `--wandb-enable` in `train/run.py` and pass `--wandb.enable=true` to the 
 
 | Symptom | Fix |
 | --- | --- |
-| `Using device: cpu` in cloud logs | Check `--platform gpu-h100-sxm` and `--preset 1gpu-20vcpu-160gb` are set |
+| `Using device: cpu` in cloud logs | Check `--platform gpu-h100-sxm` and `--preset 1gpu-16vcpu-200gb` are set |
 | `ModuleNotFoundError: lerobot` | Image not built correctly — rebuild with `docker build --no-cache` |
 | `policy.repo_id` missing / push to hub | v0.5.1 may default `push_to_hub=True`; `train/run.py` passes `--policy.push_to_hub=false`. To push, set `--policy.push_to_hub=true` and supply `--policy.repo_id=your-org/your-model` |
 | `FileExistsError` on `output_dir` | Remove the directory, use a new `--output-dir`, or omit it so a timestamped path is used |

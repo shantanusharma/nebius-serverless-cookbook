@@ -109,6 +109,7 @@ def _build_train_cmd(args: argparse.Namespace, output_dir: Path) -> list[str]:
 
     # v0.5.1 top-level flags (confirmed via `lerobot-train --help`):
     #   --steps int, --batch_size int, --save_freq int, --num_workers int
+    wandb_on = bool(os.environ.get("WANDB_API_KEY"))
     flags: list[str] = [
         f"--policy.type={args.policy}",
         # v0.5.1 defaults push_to_hub=True; without policy.repo_id validation fails.
@@ -118,7 +119,7 @@ def _build_train_cmd(args: argparse.Namespace, output_dir: Path) -> list[str]:
         f"--steps={args.steps}",
         f"--batch_size={args.batch_size}",
         f"--output_dir={output_dir}",
-        "--wandb.enable=false",
+        f"--wandb.enable={'true' if wandb_on else 'false'}",
     ]
     if args.env:
         flags.append(f"--env.type={args.env}")
