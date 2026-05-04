@@ -76,7 +76,14 @@ class S3Config(BaseModel):
         )
 
 
-def _build_train_cmd(cfg: TrainConfig, output_dir: Path) -> list[str]:
+def _build_train_cmd(
+    cfg: TrainConfig,
+    output_dir: Path,
+    *,
+    job_name: str | None = None,
+    wandb_project: str | None = None,
+    wandb_entity: str | None = None,
+) -> list[str]:
     """Build the LeRobot training command."""
     venv_bin = Path(sys.executable).parent
     lerobot_train = venv_bin / "lerobot-train"
@@ -106,6 +113,13 @@ def _build_train_cmd(cfg: TrainConfig, output_dir: Path) -> list[str]:
         flags.append(f"--env.type={cfg.env}")
     if cfg.eval_episodes > 0 and cfg.env:
         flags.append(f"--eval.n_episodes={cfg.eval_episodes}")
+    if wandb_on:
+        if job_name:
+            flags.append(f"--job_name={job_name}")
+        if wandb_project:
+            flags.append(f"--wandb.project={wandb_project}")
+        if wandb_entity:
+            flags.append(f"--wandb.entity={wandb_entity}")
     return base + flags
 
 
@@ -192,6 +206,21 @@ def main(
         "--output-dir",
         help="Local checkpoint output directory. Auto-generated with timestamp if omitted.",
     ),
+    label: str | None = typer.Option(
+        None,
+        "--label",
+        help="Optional short suffix appended to the run/output name for disambiguation.",
+    ),
+    wandb_project: str | None = typer.Option(
+        None,
+        "--wandb-project",
+        help="Override W&B project (defaults to $WANDB_PROJECT if set).",
+    ),
+    wandb_entity: str | None = typer.Option(
+        None,
+        "--wandb-entity",
+        help="Override W&B entity (defaults to $WANDB_ENTITY if set).",
+    ),
 ) -> None:
     try:
         cfg = TrainConfig(
@@ -212,19 +241,33 @@ def main(
         os.environ["HUGGING_FACE_HUB_TOKEN"] = hf_token
 
     run_id = datetime.now(tz=timezone.utc).strftime("%Y%m%dT%H%M%S")
+    base_run_name = f"lerobot-{cfg.policy.value}-{cfg.dataset_slug}-{run_id}"
+    run_name = f"{base_run_name}-{label}" if label else base_run_name
     target_dir = (
         cfg.output_dir
         if cfg.output_dir
-        else Path("outputs")
-        / "train"
-        / f"lerobot-{cfg.policy.value}-{cfg.dataset_slug}-{run_id}"
+        else Path("outputs") / "train" / run_name
     )
     target_dir.parent.mkdir(parents=True, exist_ok=True)
 
     s3_cfg = S3Config.from_env()
     _print_summary(cfg, target_dir, s3_cfg)
 
-    cmd = _build_train_cmd(cfg, target_dir)
+    wandb_project = wandb_project or os.environ.get("WANDB_PROJECT")
+    wandb_entity = wandb_entity or os.environ.get("WANDB_ENTITY")
+    cmd = _build_train_cmd(
+        cfg,
+        target_dir,
+        job_name=run_name,
+        wandb_project=wandb_project,
+        wandb_entity=wandb_entity,
+    )
+    console.print(f"[cyan]Job / W&B name:[/cyan] {run_name}")
+    if wandb_project:
+        console.print(f"[cyan]W&B project:[/cyan] {wandb_project}")
+    if wandb_entity:
+        console.print(f"[cyan]W&B entity:[/cyan] {wandb_entity}")
+    # Tags skipped: lerobot-train CLI expects booleans for wandb.add_tags
     result = subprocess.run(cmd, text=True)
     if result.returncode != 0:
         console.print(f"[red]Training failed (exit {result.returncode}).[/red]")
