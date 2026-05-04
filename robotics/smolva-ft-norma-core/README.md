@@ -1,5 +1,5 @@
 ---
-title: Fine-tune SmolVLA for the SO-101 arm on Nebius with Norma-core framework
+title: Fine-tune SmolVLA for the SO-101 arm on Nebius with NormaCore framework
 category: robotics
 type: example
 runtime: nebius-ai-jobs
