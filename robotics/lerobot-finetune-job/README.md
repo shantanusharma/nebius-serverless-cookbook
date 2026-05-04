@@ -210,7 +210,6 @@ nebius ai job create \
   --env "S3_BUCKET=$S3_BUCKET" \
   --env "S3_PREFIX=$S3_PREFIX" \
   --env "S3_ENDPOINT_URL=$S3_ENDPOINT_URL" \
-  ${WANDB_API_KEY:+--env "WANDB_API_KEY=$WANDB_API_KEY"} \
   --args "--policy act --dataset lerobot/pusht --steps 5000"
 ```
 
@@ -344,6 +343,12 @@ The checkpoint directory must include `config.json` and `model.safetensors` (syn
 **Serverless (ACT / pusht, with W&B)**  
 Runs ACT on the public pusht dataset; uses cost-optimized L40S GPU and preemptible to save cost.
 
+Set `WANDB_API_KEY` explicitly.
+```bash
+export WANDB_API_KEY="..."
+```
+
+RRun serverless job and track metrics in W&B:
 ```bash
 nebius ai job create \
   --name "lerobot-act-pusht-5k" \
@@ -358,7 +363,7 @@ nebius ai job create \
   --env "AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION" \
   --env "S3_BUCKET=$S3_BUCKET" --env "S3_PREFIX=$S3_PREFIX" \
   --env "S3_ENDPOINT_URL=$S3_ENDPOINT_URL" \
-  ${WANDB_API_KEY:+--env "WANDB_API_KEY=$WANDB_API_KEY"} \
+  --env "WANDB_API_KEY=$WANDB_API_KEY" \
   ${HF_TOKEN:+--env "HF_TOKEN=$HF_TOKEN"} \
   --args "--policy act --dataset lerobot/pusht --steps 5000"
 ```
@@ -379,7 +384,6 @@ nebius ai job create \
   --env "S3_BUCKET=$S3_BUCKET" --env "S3_PREFIX=$S3_PREFIX" \
   --env "S3_ENDPOINT_URL=$S3_ENDPOINT_URL" \
   --env "HF_TOKEN=$HF_TOKEN" \
-  ${WANDB_API_KEY:+--env "WANDB_API_KEY=$WANDB_API_KEY"} \
   --args "--policy diffusion --dataset lerobot/aloha_sim_transfer_cube_human --steps 20000 --batch-size 2"
 ```
 
@@ -412,7 +416,6 @@ nebius ai job create \
   --env "AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION" \
   --env "S3_BUCKET=$S3_BUCKET" --env "S3_PREFIX=$S3_PREFIX" \
   --env "S3_ENDPOINT_URL=$S3_ENDPOINT_URL" \
-  ${WANDB_API_KEY:+--env "WANDB_API_KEY=$WANDB_API_KEY"} \
   ${HF_TOKEN:+--env "HF_TOKEN=$HF_TOKEN"} \
   --container-command "bash" \
   --args "-c 'set -euo pipefail && aws s3 cp s3://\$S3_BUCKET/\$S3_PREFIX/configs/act_pusht.yaml /tmp/act_pusht.yaml --endpoint-url \$S3_ENDPOINT_URL && lerobot-train --config_path=/tmp/act_pusht.yaml --output_dir=outputs/train/act_pusht_config --policy.device=cuda && cp /tmp/act_pusht.yaml outputs/train/act_pusht_config/run_config.yaml && aws s3 sync outputs/train/act_pusht_config s3://\$S3_BUCKET/\$S3_PREFIX/act_pusht_config/ --endpoint-url \$S3_ENDPOINT_URL'"
@@ -476,4 +479,8 @@ python -m train.run --help
 
 # Build image locally (dev tag)
 docker build --platform linux/amd64 -t lerobot-finetune:dev .
+
+# Build and push release image
+docker build --platform linux/amd64 -t mnrozhkov/lerobot-finetune:v0.1.0 .
+docker push mnrozhkov/lerobot-finetune:v0.1.0
 ```
