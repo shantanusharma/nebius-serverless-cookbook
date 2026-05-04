@@ -7,6 +7,7 @@
 # Policy and dataset (required)
 policy:
   type: act            # act | diffusion | smolvla | pi0 | ...
+  push_to_hub: false   # Skip HF Hub upload (otherwise lerobot-train needs policy.repo_id).
 dataset:
   repo_id: lerobot/pusht   # HuggingFace dataset repo_id
 
