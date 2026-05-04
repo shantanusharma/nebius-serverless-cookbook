@@ -25,6 +25,8 @@ Choose the path that best matches what you want to run:
 - **Training / fine-tuning** → [Training examples](./training/)
 - **Inference / serving** → [Inference examples](./inference/)
 - **Scientific / domain workloads** → [Life science examples](./life-science/)
+- **Robotics** → [Robotics examples](./robotics/)
+- **Robotics / physical AI** → [Robotics examples](./robotics/)
 
 ## Getting started
 
@@ -32,6 +34,7 @@ Choose the path that best matches what you want to run:
 2. Configure your CLI profile and project: [Configure guide](https://docs.nebius.com/cli/configure)
 3. Pick an example from the sections below
 4. Follow the example README and verify the expected output
+   - Optional: shared setup helpers live in [`scripts/README.md`](scripts/README.md)
 
 ## Example catalog
 
@@ -52,10 +55,20 @@ Endpoint serving and batch inference workloads.
 
 - [`vllm-endpoint`](./inference/vllm-endpoint/README.md) — serve Qwen with an OpenAI-compatible vLLM endpoint
 
+### 🤖 Robotics
+Robotics and physical-AI experiment loops.
+
+- [`smolva-ft-norma-core`](./robotics/smolva-ft-norma-core/README.md) — fine-tune SmolVLA for SO-101 with bundled trajectories
+
 ### 🧬 Life Science
 Domain-specific simulation and analysis workloads.
 
 - [`openmm-simulation`](./life-science/openmm-simulation/README.md) — run GPU-backed molecular dynamics simulations with OpenMM
+
+### 🤖 Robotics
+Simulation, dataset generation, and robotics-oriented compute workflows.
+
+- [`lerobot-finetune-job`](./robotics/lerobot-finetune-job/README.md) — fine-tune a LeRobot ACT or Diffusion policy on a robotics dataset in a serverless GPU job
 
 ## Repository structure
 
@@ -72,11 +85,17 @@ serverless-cookbook/
 │  ├─ axolotl-finetuning/
 │  ├─ train-and-serve/
 │  └─ ...
+├─ robotics/
+│  ├─ smolva-ft-norma-core/
+│  └─ ...
 ├─ inference/
 │  ├─ vllm-endpoint/
 │  └─ ...
 ├─ life-science/
 │  ├─ openmm-simulation/
+│  └─ ...
+├─ robotics/
+│  ├─ lerobot-finetune-job/
 │  └─ ...
 ```
 
@@ -86,6 +105,7 @@ serverless-cookbook/
 - `training/`: model training and fine-tuning workloads.
 - `inference/`: endpoint serving and batch inference workloads.
 - `life-science/`: domain-specific simulation and analysis workloads.
+- `robotics/`: simulation, dataset generation, and robotics-oriented compute workflows.
 
 
 ## Resources

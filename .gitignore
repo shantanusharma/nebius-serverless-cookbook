@@ -4,6 +4,8 @@
 .venv
 .env.*
 **/.env*
+.env.bak
+!.env.example
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
