@@ -19,14 +19,13 @@ Examples focus on practical use cases such as:
 
 ## Try a workload
 
-Choose the path that best matches what you want to run:
+Pick the section that matches your goal — each links to runnable examples:
 
-- **First run** → [Quickstarts](./quickstarts/)
-- **Training / fine-tuning** → [Training examples](./training/)
-- **Inference / serving** → [Inference examples](./inference/)
-- **Scientific / domain workloads** → [Life science examples](./life-science/)
-- **Robotics** → [Robotics examples](./robotics/)
-- **Robotics / physical AI** → [Robotics examples](./robotics/)
+- 🚀 [**Quickstarts**](./quickstarts/) — lowest-friction first runs.
+- 🏋️ [**Training**](./training/) — model training and fine-tuning workloads.
+- ⚡ [**Inference**](./inference/) — endpoint serving and batch inference workloads.
+- 🧬 [**Life Science**](./life-science/) — domain-specific simulation and analysis workloads.
+- 🤖 [**Robotics**](./robotics/) — simulation, dataset generation, and robotics workflows.
 
 ## Getting started
 
@@ -55,20 +54,29 @@ Endpoint serving and batch inference workloads.
 
 - [`vllm-endpoint`](./inference/vllm-endpoint/README.md) — serve Qwen with an OpenAI-compatible vLLM endpoint
 
-### 🤖 Robotics
-Robotics and physical-AI experiment loops.
-
-- [`smolva-ft-norma-core`](./robotics/smolva-ft-norma-core/README.md) — fine-tune SmolVLA for SO-101 with bundled trajectories
-
 ### 🧬 Life Science
 Domain-specific simulation and analysis workloads.
 
 - [`openmm-simulation`](./life-science/openmm-simulation/README.md) — run GPU-backed molecular dynamics simulations with OpenMM
 
 ### 🤖 Robotics
-Simulation, dataset generation, and robotics-oriented compute workflows.
+Robotics and physical-AI experiment loops.
 
 - [`lerobot-finetune-job`](./robotics/lerobot-finetune-job/README.md) — fine-tune a LeRobot ACT or Diffusion policy on a robotics dataset in a serverless GPU job
+- [`smolva-ft-norma-core`](./robotics/smolva-ft-norma-core/README.md) — fine-tune SmolVLA for SO-101 with bundled trajectories
+
+## Awesome Community Projects
+
+External examples and writeups from the community running serverless workloads on Nebius. Got something to add? Open a PR.
+
+### Robotics
+
+- 🤖 **Positronic + Nebius serverless workflows** — Convert datasets, train ACT/SmolVLA, and serve checkpoints as endpoints — all serverless on Nebius. — *by vertix* · [💻 code](https://github.com/vertix/positronic-open/tree/add-nebius-workflows/workflows/nebius)
+- 🦾 **norma-core SmolVLA — Nebius fine-tune recipe** — Upstream recipe the [`robotics/smolva-ft-norma-core`](./robotics/smolva-ft-norma-core/) example mirrors. — *by norma-core* · [💻 code](https://github.com/norma-core/norma-core/blob/main/software/ai/smolvla_py/nebius.md)
+
+### MLOps / Pipelines
+
+- 🎬 **Video transcription pipeline with Prefect + Nebius** — Prefect flows orchestrating S3 + ffmpeg (CPU job) + Whisper (GPU job) on Nebius. — *by Darko Mesaros* · [💻 code](https://github.com/darko-mesaros/video-transcriber-prefect) · [📝 post](https://rup12.net/posts/video-transcription-pipeline-with-prefect-and-nebius/)
 
 ## Repository structure
 
@@ -79,34 +87,12 @@ serverless-cookbook/
 ├─ DEVELOPER_GUIDE.md
 ├─ LICENSE
 ├─ quickstarts/
-│  ├─ first-job.md
-│  ├─ first-endpoint.md
 ├─ training/
-│  ├─ axolotl-finetuning/
-│  ├─ train-and-serve/
-│  └─ ...
 ├─ robotics/
-│  ├─ smolva-ft-norma-core/
-│  └─ ...
 ├─ inference/
-│  ├─ vllm-endpoint/
-│  └─ ...
 ├─ life-science/
-│  ├─ openmm-simulation/
-│  └─ ...
 ├─ robotics/
-│  ├─ lerobot-finetune-job/
-│  └─ ...
 ```
-
-## Section guide
-
-- `quickstarts/`: lowest-friction first runs.
-- `training/`: model training and fine-tuning workloads.
-- `inference/`: endpoint serving and batch inference workloads.
-- `life-science/`: domain-specific simulation and analysis workloads.
-- `robotics/`: simulation, dataset generation, and robotics-oriented compute workflows.
-
 
 ## Resources
 
