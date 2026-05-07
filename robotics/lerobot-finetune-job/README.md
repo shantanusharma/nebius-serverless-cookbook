@@ -210,7 +210,6 @@ nebius ai job create \
   --env "S3_BUCKET=$S3_BUCKET" \
   --env "S3_PREFIX=$S3_PREFIX" \
   --env "S3_ENDPOINT_URL=$S3_ENDPOINT_URL" \
-  ${WANDB_API_KEY:+--env "WANDB_API_KEY=$WANDB_API_KEY"} \
   --args "--policy act --dataset lerobot/pusht --steps 5000"
 ```
 
@@ -342,36 +341,42 @@ The checkpoint directory must include `config.json` and `model.safetensors` (syn
 - Build/push your own image: set `REGISTRY` / `IMAGE_TAG`, then `docker build --platform linux/amd64 -t "$REGISTRY/lerobot-finetune:$IMAGE_TAG" .` and push; use that tag in `--image` or `IMAGE` env.
 
 **Serverless (ACT / pusht, with W&B)**  
-Runs ACT on the public pusht dataset; uses cost-optimized L4 GPU and preemptible to save cost.
+Runs ACT on the public pusht dataset; uses cost-optimized L40S GPU and preemptible to save cost.
 
+Set `WANDB_API_KEY` explicitly.
+```bash
+export WANDB_API_KEY="..."
+```
+
+RRun serverless job and track metrics in W&B:
 ```bash
 nebius ai job create \
   --name "lerobot-act-pusht-5k" \
   --image "mnrozhkov/lerobot-finetune:v0.1.0" \
-  --platform "gpu-l4" \             # L4 GPU (cost-optimized)
-  --preset "1gpu-8vcpu-32gb" \      # matching preset
-  --timeout "6h" \                  # wall-clock timeout
-  --disk-size 450Gi \               # data + checkpoints
-  --preemptible \                   # cheaper, may restart
+  --platform "gpu-l40s-a" \
+  --preset "1gpu-16vcpu-64gb" \
+  --timeout "6h" \
+  --disk-size 450Gi \
+  --preemptible \
   --env "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" \
   --env "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" \
   --env "AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION" \
   --env "S3_BUCKET=$S3_BUCKET" --env "S3_PREFIX=$S3_PREFIX" \
   --env "S3_ENDPOINT_URL=$S3_ENDPOINT_URL" \
-  ${WANDB_API_KEY:+--env "WANDB_API_KEY=$WANDB_API_KEY"} \
+  --env "WANDB_API_KEY=$WANDB_API_KEY" \
   ${HF_TOKEN:+--env "HF_TOKEN=$HF_TOKEN"} \
   --args "--policy act --dataset lerobot/pusht --steps 5000"
 ```
 
 **Serverless (Diffusion / gated ALOHA sim)**  
-Runs Diffusion policy on a gated ALOHA simulation dataset; requires HF_TOKEN; uses H100-class resources and more steps.
+Runs Diffusion policy on a gated ALOHA simulation dataset; requires HF_TOKEN; uses L40S with modest batch size.
 
 ```bash
 nebius ai job create \
   --name "lerobot-diffusion-aloha-sim-20k" \
   --image "mnrozhkov/lerobot-finetune:v0.1.0" \
-  --platform "gpu-h100-sxm" \
-  --preset "1gpu-16vcpu-200gb" \
+  --platform "gpu-l40s-a" \
+  --preset "1gpu-16vcpu-64gb" \
   --timeout "6h" --disk-size 450Gi \
   --env "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" \
   --env "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" \
@@ -379,9 +384,50 @@ nebius ai job create \
   --env "S3_BUCKET=$S3_BUCKET" --env "S3_PREFIX=$S3_PREFIX" \
   --env "S3_ENDPOINT_URL=$S3_ENDPOINT_URL" \
   --env "HF_TOKEN=$HF_TOKEN" \
-  ${WANDB_API_KEY:+--env "WANDB_API_KEY=$WANDB_API_KEY"} \
   --args "--policy diffusion --dataset lerobot/aloha_sim_transfer_cube_human --steps 20000 --batch-size 2"
 ```
+
+**Advanced: use upstream `lerobot-train` directly (config-based)**  
+For power users who prefer the native CLI. The image's default `ENTRYPOINT` is `python -m train.run` (the wrapper that auto-uploads to S3), so we override it with `--container-command "bash"` and run `lerobot-train` directly, then chain `aws s3 sync` to persist the checkpoint. Ensure S3 envs (AWS_*/S3_*) and optional WANDB/HF_TOKEN are set; adjust resources to match your dataset.
+
+This workflow lets you edit `configs/act_pusht.yaml` locally and re-run **without rebuilding the image** — the job pulls your latest config from S3 each run.
+
+**Step A — Push the config to S3 (run again whenever you edit the YAML):**
+
+```bash
+aws s3 cp configs/act_pusht.yaml \
+  "s3://$S3_BUCKET/$S3_PREFIX/configs/act_pusht.yaml" \
+  --endpoint-url "$S3_ENDPOINT_URL"
+```
+
+**Step B — Submit the job:**  
+The job (1) downloads the config from S3, (2) runs `lerobot-train`, (3) copies the exact config used into the run folder, (4) syncs everything back to S3 for reproducibility.
+
+```bash
+nebius ai job create \
+  --name "lerobot-act-pusht-config" \
+  --image "mnrozhkov/lerobot-finetune:v0.1.0" \
+  --platform "gpu-l40s-a" \
+  --preset "1gpu-16vcpu-64gb" \
+  --timeout "6h" --disk-size 450Gi \
+  --preemptible \
+  --env "AWS_ACCESS_KEY_ID=$AWS_ACCESS_KEY_ID" \
+  --env "AWS_SECRET_ACCESS_KEY=$AWS_SECRET_ACCESS_KEY" \
+  --env "AWS_DEFAULT_REGION=$AWS_DEFAULT_REGION" \
+  --env "S3_BUCKET=$S3_BUCKET" --env "S3_PREFIX=$S3_PREFIX" \
+  --env "S3_ENDPOINT_URL=$S3_ENDPOINT_URL" \
+  ${HF_TOKEN:+--env "HF_TOKEN=$HF_TOKEN"} \
+  --container-command "bash" \
+  --args "-c 'set -euo pipefail && aws s3 cp s3://\$S3_BUCKET/\$S3_PREFIX/configs/act_pusht.yaml /tmp/act_pusht.yaml --endpoint-url \$S3_ENDPOINT_URL && lerobot-train --config_path=/tmp/act_pusht.yaml --output_dir=outputs/train/act_pusht_config --policy.device=cuda && cp /tmp/act_pusht.yaml outputs/train/act_pusht_config/run_config.yaml && aws s3 sync outputs/train/act_pusht_config s3://\$S3_BUCKET/\$S3_PREFIX/act_pusht_config/ --endpoint-url \$S3_ENDPOINT_URL'"
+```
+
+> Notes:
+>
+> - `lerobot-train` uses [draccus](https://github.com/dlwh/draccus) — flags use **underscores** (`--config_path`, `--output_dir`, `--batch_size`) and `=`, with dots for nested fields (`--policy.device=cuda`).
+> - `\$S3_BUCKET` / `\$S3_PREFIX` / `\$S3_ENDPOINT_URL` are escaped on purpose so they expand inside the container (from `--env`), not in your local shell.
+> - `set -euo pipefail` makes the chain abort on the first failure instead of silently uploading a half-trained run.
+> - The image still ships a copy of `configs/act_pusht.yaml` baked in at `/lerobot/configs/act_pusht.yaml` (used by the local smoke test); the S3 copy is what the cloud job actually trains against.
+> - To smoke-test the same command locally before submitting: run the image with `--entrypoint bash` and the configs/train mounts, then run `lerobot-train --config_path=/lerobot/configs/act_pusht.yaml --steps=20 --batch_size=2 --policy.device=cpu` (see [Troubleshooting](#troubleshooting)).
 
 ---
 
@@ -394,6 +440,10 @@ nebius ai job create \
 | Job completes but no S3 results | Check all `AWS_*` and `S3_*` env vars are set and the bucket exists |
 | `multiple subnets found` on submission | Export `SUBNET_ID`, then add `--subnet-id "$SUBNET_ID"` to `job create` |
 | OOM on L40S | Reduce `--batch-size` to 4 or switch to `--platform gpu-h100-sxm` |
+| `No such option: --config-path` (Typer error) | You're hitting the default `python -m train.run` entrypoint. To use upstream `lerobot-train` directly, override it with `--container-command "bash"` and pass the full command via `--args "-c '...'"` (see [Advanced](#adapting-to-your-own-use-case)). |
+| `lerobot-train: error: unrecognized arguments: --config-path …` | draccus uses **underscores**: pass `--config_path=...` (with `=`), not `--config-path`. Same rule for `--output_dir`, `--batch_size`, `--save_freq`. |
+| `ValueError: 'policy.repo_id' argument missing. Please specify it to push the model to the hub.` | `lerobot-train` defaults to pushing the checkpoint to HF Hub. Either set `policy.push_to_hub: false` in the YAML (already done in `configs/act_pusht.yaml`) or pass `--policy.push_to_hub=false` on the CLI. The bundled `train/run.py` wrapper already does this for you. |
+| Want to smoke-test the upstream CLI locally first | `docker run --rm -it --platform linux/amd64 --shm-size 2g --entrypoint bash -v "$(pwd)/configs:/lerobot/configs" -v "$(pwd)/lerobot-outputs:/lerobot/outputs" mnrozhkov/lerobot-finetune:v0.1.0`, then inside: `lerobot-train --config_path=/lerobot/configs/act_pusht.yaml --steps=20 --batch_size=2 --policy.device=cpu`. |
 
 ## References
 
@@ -429,4 +479,8 @@ python -m train.run --help
 
 # Build image locally (dev tag)
 docker build --platform linux/amd64 -t lerobot-finetune:dev .
+
+# Build and push release image
+docker build --platform linux/amd64 -t mnrozhkov/lerobot-finetune:v0.1.0 .
+docker push mnrozhkov/lerobot-finetune:v0.1.0
 ```

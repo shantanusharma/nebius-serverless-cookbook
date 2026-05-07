@@ -101,6 +101,23 @@ Minimum required files:
 - `README.md`
 - runnable config/command files needed for first execution
 
+## Optional: shared scripts toolkit
+
+The repo ships an opt-in `scripts/` toolkit (`bootstrap-env.sh`, `bootstrap-storage.sh`, `activate.sh`, `cleanup.sh`) for common setup — resolving project/subnet, creating buckets and service accounts, writing `.env` files. Currently used by the robotics examples; not required.
+
+Use it when:
+
+- your example needs a Nebius project ID, subnet ID, or an S3 bucket
+- you want users to skip manual CLI plumbing on a first run
+- the example is one of several in a category and benefits from per-example `.env.<example>` isolation
+
+Skip it when:
+
+- the example is fully self-contained (no S3, no per-tenant config)
+- the setup is already trivially short (a single `nebius ai job create ...`)
+
+Canonical docs and full helper list: [`scripts/README.md`](./scripts/README.md).
+
 ## README front matter
 
 Store lightweight metadata in YAML front matter at the top of each example `README.md`.
