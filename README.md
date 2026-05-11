@@ -24,6 +24,7 @@ Pick the section that matches your goal — each links to runnable examples:
 - 🚀 [**Quickstarts**](./quickstarts/) — lowest-friction first runs.
 - 🏋️ [**Training**](./training/) — model training and fine-tuning workloads.
 - ⚡ [**Inference**](./inference/) — endpoint serving and batch inference workloads.
+- 🔁 [**MLOps / Pipelines**](./mlops/) - orchestration, artifact handoffs, and multi-stage workflows.
 - 🧬 [**Life Science**](./life-science/) — domain-specific simulation and analysis workloads.
 - 🤖 [**Robotics**](./robotics/) — simulation, dataset generation, and robotics workflows.
 
@@ -53,6 +54,11 @@ Model training and fine-tuning workloads.
 Endpoint serving and batch inference workloads.
 
 - [`vllm-endpoint`](./inference/vllm-endpoint/README.md) — serve Qwen with an OpenAI-compatible vLLM endpoint
+
+### 🔁 MLOps / Pipelines
+Workflow orchestration and artifact handoff patterns.
+
+- [`video-transcription-pipeline`](./mlops/video-transcription-pipeline/README.md) - orchestrate Object Storage, CPU jobs, and GPU Whisper jobs with Prefect
 
 ### 🧬 Life Science
 Domain-specific simulation and analysis workloads.
@@ -90,6 +96,7 @@ serverless-cookbook/
 ├─ training/
 ├─ robotics/
 ├─ inference/
+├─ mlops/
 ├─ life-science/
 ├─ robotics/
 ```
