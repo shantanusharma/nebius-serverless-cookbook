@@ -90,7 +90,7 @@ The example uses a public `ffmpeg` image for audio extraction and a Whisper imag
 
 For compute, start with the defaults in `.env.example`: a CPU preset for `ffmpeg` and a single H200 GPU preset for Whisper. If your project has different quota or regional availability, change the platform and preset values before running the flow.
 
-This cookbook uses a [`justfile`](https://just.systems/man/en/) to keep the commands short and easy to repeat. `just` is only a command runner, not a requirement for the pipeline itself. If you do not want to install it, every recipe maps to a plain command like `uv run python -m video_transcriber_pipeline check` or `uv run python -m video_transcriber_pipeline cloud-run`.
+This cookbook uses a [`justfile`](https://just.systems/man/en/) to keep the commands short and easy to repeat. `just` is only a command runner, not a requirement for the pipeline itself. If you prefer to run the underlying commands directly, every recipe is written out in the `justfile`.
 
 ## Step 1: configure the environment
 
@@ -151,12 +151,6 @@ Before starting any jobs, ask the flow what it sees.
 just check
 ```
 
-Without `just`, run the module directly.
-
-```bash
-uv run python -m video_transcriber_pipeline check
-```
-
 A healthy setup returns the videos and audio files waiting in the inbox prefixes.
 
 ```text
@@ -172,12 +166,6 @@ Now run the full pipeline.
 
 ```bash
 just cloud-run
-```
-
-Without `just`, the equivalent command is:
-
-```bash
-uv run python -m video_transcriber_pipeline cloud-run
 ```
 
 The flow creates one CPU job for each new video, waits for it to complete, then creates one GPU job for each new audio file and waits for that to complete too. When the transcript is present, the flow moves the audio and transcript into `DONE_audio/`.
@@ -223,12 +211,6 @@ If you want the local Prefect dashboard, start it in another terminal.
 just dashboard
 ```
 
-Without `just`, run:
-
-```bash
-uv run prefect server start
-```
-
 Then run `just cloud-run` again. The dashboard is useful because each task shows up separately, which makes failures much easier to reason about than a single long script.
 
 ## Optional: serve it on a schedule
@@ -237,12 +219,6 @@ For a small recurring workflow, you can serve the flow with Prefect. The include
 
 ```bash
 just serve
-```
-
-Without `just`, run:
-
-```bash
-uv run python -m video_transcriber_pipeline serve
 ```
 
 That turns the bucket into a simple drop zone. Put videos in `video/`, let the served flow pick them up, and come back to transcripts in `DONE_audio/`.
