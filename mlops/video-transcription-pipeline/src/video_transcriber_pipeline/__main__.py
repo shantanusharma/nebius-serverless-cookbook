@@ -3,7 +3,7 @@
 import asyncio
 import sys
 
-from nebius_pipeline.flows import (
+from video_transcriber_pipeline.flows import (
     check_bucket,
     extract_audio_cloud_flow,
     fully_cloud_pipeline,
@@ -29,7 +29,10 @@ def main() -> None:
             tags=["nebius", "prefect", "transcription", "mlops"],
         )
     else:
-        print("Usage: python -m nebius_pipeline [check|cloud-extract|cloud-run|run|serve]")
+        print(
+            "Usage: python -m video_transcriber_pipeline "
+            "[check|cloud-extract|cloud-run|run|serve]"
+        )
         sys.exit(1)
 
 

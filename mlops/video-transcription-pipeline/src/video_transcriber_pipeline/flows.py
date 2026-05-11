@@ -3,19 +3,19 @@
 from prefect import flow
 from prefect.logging import get_run_logger
 
-from nebius_pipeline.config import settings
-from nebius_pipeline.tasks.extract import (
+from video_transcriber_pipeline.config import settings
+from video_transcriber_pipeline.tasks.extract import (
     build_local_paths,
     run_ffmpeg_extraction,
     upload_extracted_audio,
     video_key_to_audio_key,
 )
-from nebius_pipeline.tasks.jobs import (
+from video_transcriber_pipeline.tasks.jobs import (
     create_ffmpeg_job,
     create_whisper_job,
     wait_for_job_completion,
 )
-from nebius_pipeline.tasks.storage import (
+from video_transcriber_pipeline.tasks.storage import (
     download_object,
     list_new_audio,
     list_new_videos,

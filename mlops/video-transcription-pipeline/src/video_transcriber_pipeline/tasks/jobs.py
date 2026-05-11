@@ -17,8 +17,8 @@ from nebius.sdk import SDK
 from prefect import task
 from prefect.logging import get_run_logger
 
-from nebius_pipeline.config import settings
-from nebius_pipeline.tasks.extract import video_key_to_audio_key
+from video_transcriber_pipeline.config import settings
+from video_transcriber_pipeline.tasks.extract import video_key_to_audio_key
 
 
 def get_sdk() -> SDK:

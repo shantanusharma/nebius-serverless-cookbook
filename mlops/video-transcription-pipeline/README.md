@@ -2,19 +2,33 @@
 title: Video Transcription Pipeline with Prefect and Nebius AI Jobs
 category: mlops
 type: workflow
-runtime: nebius-ai-jobs
-frameworks: [prefect, python, whisper, ffmpeg]
-keywords: [mlops, transcription, object-storage, serverless-jobs, gpu, workflow]
+runtime: gpu
+frameworks:
+  - prefect
+  - python
+  - whisper
+  - ffmpeg
+keywords:
+  - mlops
+  - transcription
+  - object-storage
+  - serverless-jobs
+  - gpu
+  - workflow
 difficulty: intermediate
 ---
 
 # Video Transcription Pipeline with Prefect and Nebius AI Jobs
 
-This example shows a small MLOps pipeline that turns videos in Object Storage into text transcripts. A Prefect flow watches a bucket, starts a CPU job to extract audio with `ffmpeg`, starts a GPU job to transcribe that audio with Whisper, then moves the finished files into completed prefixes.
+This example shows a small MLOps pipeline that turns videos in Object Storage into text transcripts. A [Prefect](https://www.prefect.io/) flow watches a bucket, starts a CPU job to extract audio with `ffmpeg`, starts a GPU job to transcribe that audio with Whisper, then moves the finished files into completed prefixes.
 
 The useful bit here is not the transcription model itself. The useful bit is the pattern. Object Storage becomes the handoff point between pipeline stages, Prefect keeps the orchestration readable, and Nebius AI Jobs run the actual container workloads without you managing a VM.
 
 For the longer writeup behind this example, see [Building a Video Transcription Pipeline with Prefect and Nebius AI](https://rup12.net/posts/video-transcription-pipeline-with-prefect-and-nebius/).
+
+Here is what the pipeline looks like in the Prefect UI after a full run.
+
+![Prefect UI showing a completed video transcription pipeline run](assets/prefect-full.png)
 
 ## What this example does
 
@@ -58,7 +72,7 @@ mlops/video-transcription-pipeline/
 ├── .env.example
 ├── justfile
 ├── pyproject.toml
-└── src/nebius_pipeline/
+└── src/video_transcriber_pipeline/
     ├── __main__.py
     ├── config.py
     ├── flows.py
@@ -75,6 +89,8 @@ You need the Nebius CLI installed and authenticated, Python 3.12, `uv`, and an S
 The example uses a public `ffmpeg` image for audio extraction and a Whisper image for transcription. The default Whisper image is `ghcr.io/darko-mesaros/nebius-whisper:latest`, but you can replace it with your own image as long as it accepts an audio path as its argument and writes a `.txt` file next to the input audio.
 
 For compute, start with the defaults in `.env.example`: a CPU preset for `ffmpeg` and a single H200 GPU preset for Whisper. If your project has different quota or regional availability, change the platform and preset values before running the flow.
+
+This cookbook uses a [`justfile`](https://just.systems/man/en/) to keep the commands short and easy to repeat. `just` is only a command runner, not a requirement for the pipeline itself. If you do not want to install it, every recipe maps to a plain command like `uv run python -m video_transcriber_pipeline check` or `uv run python -m video_transcriber_pipeline cloud-run`.
 
 ## Step 1: configure the environment
 
@@ -135,6 +151,12 @@ Before starting any jobs, ask the flow what it sees.
 just check
 ```
 
+Without `just`, run the module directly.
+
+```bash
+uv run python -m video_transcriber_pipeline check
+```
+
 A healthy setup returns the videos and audio files waiting in the inbox prefixes.
 
 ```text
@@ -150,6 +172,12 @@ Now run the full pipeline.
 
 ```bash
 just cloud-run
+```
+
+Without `just`, the equivalent command is:
+
+```bash
+uv run python -m video_transcriber_pipeline cloud-run
 ```
 
 The flow creates one CPU job for each new video, waits for it to complete, then creates one GPU job for each new audio file and waits for that to complete too. When the transcript is present, the flow moves the audio and transcript into `DONE_audio/`.
@@ -195,6 +223,12 @@ If you want the local Prefect dashboard, start it in another terminal.
 just dashboard
 ```
 
+Without `just`, run:
+
+```bash
+uv run prefect server start
+```
+
 Then run `just cloud-run` again. The dashboard is useful because each task shows up separately, which makes failures much easier to reason about than a single long script.
 
 ## Optional: serve it on a schedule
@@ -203,6 +237,12 @@ For a small recurring workflow, you can serve the flow with Prefect. The include
 
 ```bash
 just serve
+```
+
+Without `just`, run:
+
+```bash
+uv run python -m video_transcriber_pipeline serve
 ```
 
 That turns the bucket into a simple drop zone. Put videos in `video/`, let the served flow pick them up, and come back to transcripts in `DONE_audio/`.

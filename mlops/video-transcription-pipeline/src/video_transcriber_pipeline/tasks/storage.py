@@ -5,7 +5,7 @@ from botocore.exceptions import ClientError
 from prefect import task
 from prefect.logging import get_run_logger
 
-from nebius_pipeline.config import settings
+from video_transcriber_pipeline.config import settings
 
 
 def get_s3_client():

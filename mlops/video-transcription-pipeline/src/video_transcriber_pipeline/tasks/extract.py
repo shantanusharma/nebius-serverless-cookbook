@@ -6,8 +6,8 @@ from pathlib import Path
 
 from prefect import task
 
-from nebius_pipeline.config import settings
-from nebius_pipeline.tasks.storage import upload_object
+from video_transcriber_pipeline.config import settings
+from video_transcriber_pipeline.tasks.storage import upload_object
 
 
 def video_key_to_audio_key(video_key: str) -> str:
