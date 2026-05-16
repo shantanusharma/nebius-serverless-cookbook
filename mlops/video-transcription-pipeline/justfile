@@ -1,0 +1,29 @@
+# Video transcription pipeline with Prefect and Nebius AI Jobs
+
+# Sync dependencies
+sync:
+    uv sync
+
+# Show files waiting in the inbox prefixes
+check:
+    uv run python -m video_transcriber_pipeline check
+
+# Run the recommended fully cloud pipeline once
+cloud-run:
+    uv run python -m video_transcriber_pipeline cloud-run
+
+# Extract audio in a Nebius CPU job, without launching Whisper jobs
+cloud-extract:
+    uv run python -m video_transcriber_pipeline cloud-extract
+
+# Optional local development path: local ffmpeg extraction + cloud Whisper
+run:
+    uv run python -m video_transcriber_pipeline run
+
+# Start the local Prefect UI
+dashboard:
+    uv run prefect server start
+
+# Serve the fully cloud pipeline on a schedule
+serve:
+    uv run python -m video_transcriber_pipeline serve

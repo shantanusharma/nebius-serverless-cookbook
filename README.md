@@ -24,6 +24,7 @@ Pick the section that matches your goal — each links to runnable examples:
 - 🚀 [**Quickstarts**](./quickstarts/) — lowest-friction first runs.
 - 🏋️ [**Training**](./training/) — model training and fine-tuning workloads.
 - ⚡ [**Inference**](./inference/) — endpoint serving and batch inference workloads.
+- 🔁 [**MLOps / Pipelines**](./mlops/) - orchestration, artifact handoffs, and multi-stage workflows.
 - 🧬 [**Life Science**](./life-science/) — domain-specific simulation and analysis workloads.
 - 🤖 [**Robotics**](./robotics/) — simulation, dataset generation, and robotics workflows.
 
@@ -54,6 +55,11 @@ Endpoint serving and batch inference workloads.
 
 - [`vllm-endpoint`](./inference/vllm-endpoint/README.md) — serve Qwen with an OpenAI-compatible vLLM endpoint
 
+### 🔁 MLOps / Pipelines
+Workflow orchestration and artifact handoff patterns.
+
+- [`video-transcription-pipeline`](./mlops/video-transcription-pipeline/README.md) - orchestrate Object Storage, CPU jobs, and GPU Whisper jobs with Prefect
+
 ### 🧬 Life Science
 Domain-specific simulation and analysis workloads.
 
@@ -74,9 +80,6 @@ External examples and writeups from the community running serverless workloads o
 - 🤖 **Positronic + Nebius serverless workflows** — Convert datasets, train ACT/SmolVLA, and serve checkpoints as endpoints — all serverless on Nebius. — *by vertix* · [💻 code](https://github.com/vertix/positronic-open/tree/add-nebius-workflows/workflows/nebius)
 - 🦾 **norma-core SmolVLA — Nebius fine-tune recipe** — Upstream recipe the [`robotics/smolva-ft-norma-core`](./robotics/smolva-ft-norma-core/) example mirrors. — *by norma-core* · [💻 code](https://github.com/norma-core/norma-core/blob/main/software/ai/smolvla_py/nebius.md)
 
-### MLOps / Pipelines
-
-- 🎬 **Video transcription pipeline with Prefect + Nebius** — Prefect flows orchestrating S3 + ffmpeg (CPU job) + Whisper (GPU job) on Nebius. — *by Darko Mesaros* · [💻 code](https://github.com/darko-mesaros/video-transcriber-prefect) · [📝 post](https://rup12.net/posts/video-transcription-pipeline-with-prefect-and-nebius/)
 
 ## Repository structure
 
@@ -90,6 +93,7 @@ serverless-cookbook/
 ├─ training/
 ├─ robotics/
 ├─ inference/
+├─ mlops/
 ├─ life-science/
 ├─ robotics/
 ```

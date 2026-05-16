@@ -133,7 +133,7 @@ Recommended fields:
 - `difficulty`
 
 `category` must be one of:
-`quickstarts`, `training`, `inference`, `agents`, `robotics`, `life-sciences`.
+`quickstarts`, `training`, `inference`, `agents`, `robotics`, `life-sciences`, `mlops`.
 
 ## README checklist
 
